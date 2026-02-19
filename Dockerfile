@@ -28,7 +28,8 @@ RUN if [ "$TARGETARCH" = "arm64" ]; then \
       libc6-dev-arm64-cross \
       pkg-config \
       libssl-dev \
-      clang; \
+      clang && \
+      rustup target add aarch64-unknown-linux-gnu; \
     else \
       apt-get update && apt-get install -y \
       pkg-config \
