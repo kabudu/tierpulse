@@ -1,0 +1,9 @@
+target/
+node_modules/
+.git/
+.github/
+Dockerfile
+.dockerignore
+model-prep-cache/
+**/*.onnx
+!model.onnx

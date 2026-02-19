@@ -1,0 +1,165 @@
+openapi: 3.1.0
+info:
+  title: tierpulse API
+  version: 1.0.0
+  description: Versioned contract for tierpulse public HTTP API.
+servers:
+  - url: http://localhost:8080
+paths:
+  /api/v1/analyze:
+    post:
+      summary: Analyze sentiment for symbols
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AnalyzeRequest"
+      responses:
+        "200":
+          description: Sentiment analysis result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AnalyzeResponse"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "503":
+          description: Intelligence exhaustion
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /health/live:
+    get:
+      summary: Liveness probe
+      responses:
+        "200":
+          description: Process liveness
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status:
+                    type: string
+  /health/ready:
+    get:
+      summary: Readiness probe
+      responses:
+        "200":
+          description: Dependency/tier readiness
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, tiers]
+                properties:
+                  status:
+                    type: string
+                  tiers:
+                    type: object
+  /metrics:
+    get:
+      summary: Prometheus metrics
+      responses:
+        "200":
+          description: Prometheus text exposition
+          content:
+            text/plain:
+              schema:
+                type: string
+components:
+  schemas:
+    AnalyzeRequest:
+      type: object
+      required: [symbols, lookback_hours, max_articles_per_symbol]
+      properties:
+        symbols:
+          type: array
+          minItems: 1
+          maxItems: 50
+          items:
+            $ref: "#/components/schemas/Symbol"
+        lookback_hours:
+          type: integer
+          minimum: 1
+          maximum: 168
+        max_articles_per_symbol:
+          type: integer
+          minimum: 1
+          maximum: 20
+    Symbol:
+      type: object
+      required: [ticker, name]
+      properties:
+        ticker:
+          type: string
+        name:
+          type: string
+    AnalyzeResponse:
+      type: object
+      required: [request_id, results, execution_time_ms]
+      properties:
+        request_id:
+          type: string
+        results:
+          type: array
+          items:
+            $ref: "#/components/schemas/SentimentResult"
+        execution_time_ms:
+          type: integer
+    SentimentResult:
+      type: object
+      required:
+        [symbol, sentiment_score, label, confidence, source_tier, article_count]
+      properties:
+        symbol:
+          type: string
+        sentiment_score:
+          type: number
+        label:
+          type: string
+        confidence:
+          type: number
+        source_tier:
+          type: string
+        news_provider:
+          type: [string, "null"]
+        article_count:
+          type: integer
+        reasoning:
+          type: [string, "null"]
+    ErrorEnvelope:
+      type: object
+      required: [code, message, retry_after_seconds, request_id, details]
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        retry_after_seconds:
+          type: [integer, "null"]
+        request_id:
+          type: string
+        details:
+          type: array
+          items:
+            type: object
