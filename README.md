@@ -3,7 +3,7 @@
 [![Pipeline Status](https://github.com/kabudu/tierpulse/actions/workflows/pipeline.yml/badge.svg)](https://github.com/kabudu/tierpulse/actions/workflows/pipeline.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-**tierpulse** is an institutional-grade, high-throughput financial sentiment analysis engine built in **Rust**. It utilizes a three-tier "Intelligence Failover" strategy with **High-Scale Batching** to provide ultra-reliable sentiment analyzes for trading bots and financial applications.
+**tierpulse** is an institutional-grade, high-throughput financial sentiment analysis engine built in **Rust**. It utilizes a three-tier "Intelligence Failover" strategy with **High-Scale Batching** to provide ultra-reliable sentiment analysis for trading bots and financial applications.
 
 ## 🚀 Key Features
 
