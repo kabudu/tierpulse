@@ -1,27 +1,35 @@
+use axum::{
+    http::{
+        header::{HeaderName, AUTHORIZATION, CONTENT_TYPE},
+        HeaderMap, StatusCode,
+    },
+    response::{IntoResponse, Response},
+    routing::{get, post},
+    Extension, Json, Router,
+};
+use governor::{
+    state::{keyed::DefaultKeyedStateStore, InMemoryState, NotKeyed},
+    RateLimiter,
+};
+use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
+use moka::future::Cache;
 use std::sync::Arc;
 use std::time::Instant;
-use axum::{
-    routing::{get, post},
-    Router, Extension, Json, response::{IntoResponse, Response}, http::{StatusCode, HeaderMap, header::{AUTHORIZATION, HeaderName, CONTENT_TYPE}},
-};
 use tracing::info;
-use governor::{RateLimiter, state::{InMemoryState, NotKeyed, keyed::DefaultKeyedStateStore}};
 use uuid::Uuid;
-use moka::future::Cache;
-use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode};
 
 pub mod config;
-pub mod models;
+pub mod egress;
 pub mod inference;
+pub mod metrics;
+pub mod models;
 pub mod providers;
 pub mod security;
-pub mod egress;
-pub mod metrics;
 
 use config::Config;
+use inference::InferenceEngine;
 use metrics::MetricsRegistry;
 use models::{AnalyzeRequest, AnalyzeResponse, SentimentResult, Symbol};
-use inference::InferenceEngine;
 
 const MAX_SYMBOLS: usize = 50;
 const MAX_TICKER_LENGTH: usize = 16;
@@ -34,8 +42,10 @@ const MAX_MAX_ARTICLES_PER_SYMBOL: i32 = 20;
 pub struct AppState {
     pub config: Config,
     pub engine: InferenceEngine,
-    pub global_rate_limiter: Arc<RateLimiter<NotKeyed, InMemoryState, governor::clock::DefaultClock>>,
-    pub tenant_rate_limiter: Arc<RateLimiter<String, DefaultKeyedStateStore<String>, governor::clock::DefaultClock>>,
+    pub global_rate_limiter:
+        Arc<RateLimiter<NotKeyed, InMemoryState, governor::clock::DefaultClock>>,
+    pub tenant_rate_limiter:
+        Arc<RateLimiter<String, DefaultKeyedStateStore<String>, governor::clock::DefaultClock>>,
     pub cache: Cache<String, SentimentResult>,
     pub redis_client: Option<redis::Client>,
     pub http_client: reqwest::Client,
@@ -49,9 +59,12 @@ pub async fn app(shared_state: Arc<AppState>) -> Router {
         .route("/health/ready", get(readiness_handler))
         .route("/metrics", get(metrics_handler))
         .route("/api/v1/analyze", post(analyze_handler))
-        .layer(tower_http::sensitive_headers::SetSensitiveRequestHeadersLayer::new(
-            [AUTHORIZATION, HeaderName::from_static("x-api-key")]
-        ))
+        .layer(
+            tower_http::sensitive_headers::SetSensitiveRequestHeadersLayer::new([
+                AUTHORIZATION,
+                HeaderName::from_static("x-api-key"),
+            ]),
+        )
         .layer(Extension(shared_state))
 }
 
@@ -72,7 +85,10 @@ pub async fn readiness_handler(Extension(state): Extension<Arc<AppState>>) -> im
         if let Ok(res) = state
             .http_client
             .get(tiingo_url)
-            .header("Authorization", format!("Token {}", state.config.tiingo_key))
+            .header(
+                "Authorization",
+                format!("Token {}", state.config.tiingo_key),
+            )
             .timeout(std::time::Duration::from_secs(1))
             .send()
             .await
@@ -101,7 +117,11 @@ pub async fn readiness_handler(Extension(state): Extension<Arc<AppState>>) -> im
         serde_json::json!("no_news_provider_available")
     };
 
-    let tier_3_status = if llm_configured { "operational" } else { "degraded" };
+    let tier_3_status = if llm_configured {
+        "operational"
+    } else {
+        "degraded"
+    };
     let tier_3_reason = if llm_configured {
         serde_json::Value::Null
     } else {
@@ -391,7 +411,9 @@ pub async fn analyze_handler(
     })
     .await;
 
-    state.metrics.observe_request(start.elapsed(), tier_exhausted);
+    state
+        .metrics
+        .observe_request(start.elapsed(), tier_exhausted);
     response
 }
 
@@ -485,9 +507,7 @@ fn unauthorized_response(request_id: &str) -> (StatusCode, Json<serde_json::Valu
     )
 }
 
-fn validate_analyze_request(
-    payload: &AnalyzeRequest,
-) -> Result<(), Vec<serde_json::Value>> {
+fn validate_analyze_request(payload: &AnalyzeRequest) -> Result<(), Vec<serde_json::Value>> {
     let mut errors: Vec<serde_json::Value> = Vec::new();
 
     if payload.symbols.is_empty() || payload.symbols.len() > MAX_SYMBOLS {
@@ -619,9 +639,9 @@ fn combined_text_from_list(list: &[String]) -> String {
 mod tests {
     use super::*;
     use axum::http::HeaderValue;
-    use governor::Quota;
     use governor::state::keyed::DefaultKeyedStateStore;
-    use jsonwebtoken::{EncodingKey, Header, encode};
+    use governor::Quota;
+    use jsonwebtoken::{encode, EncodingKey, Header};
     use serde::Serialize;
     use std::num::NonZeroU32;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -663,7 +683,8 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert("x-api-key", HeaderValue::from_static("key-b"));
 
-        let tenant = authenticate_and_resolve_tenant(&headers, &config, "tp_test").expect("expected valid tenant");
+        let tenant = authenticate_and_resolve_tenant(&headers, &config, "tp_test")
+            .expect("expected valid tenant");
         assert_eq!(tenant, "tenant-b");
     }
 
@@ -676,7 +697,8 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert("x-api-key", HeaderValue::from_static("wrong-key"));
 
-        let err = authenticate_and_resolve_tenant(&headers, &config, "tp_test").expect_err("expected unauthorized");
+        let err = authenticate_and_resolve_tenant(&headers, &config, "tp_test")
+            .expect_err("expected unauthorized");
         assert_eq!(err.0, StatusCode::UNAUTHORIZED);
     }
 
@@ -721,7 +743,8 @@ mod tests {
             HeaderValue::from_str(&format!("Bearer {}", token)).expect("header must be valid"),
         );
 
-        let tenant = authenticate_and_resolve_tenant(&headers, &config, "tp_test").expect("expected valid jwt tenant");
+        let tenant = authenticate_and_resolve_tenant(&headers, &config, "tp_test")
+            .expect("expected valid jwt tenant");
         assert_eq!(tenant, "tenant-jwt");
     }
 
@@ -732,16 +755,25 @@ mod tests {
         config.jwt_secret = Some("super-secret".to_string());
 
         let mut headers = HeaderMap::new();
-        headers.insert(AUTHORIZATION, HeaderValue::from_static("Bearer malformed.token.value"));
+        headers.insert(
+            AUTHORIZATION,
+            HeaderValue::from_static("Bearer malformed.token.value"),
+        );
 
-        let err = authenticate_and_resolve_tenant(&headers, &config, "tp_test").expect_err("expected unauthorized");
+        let err = authenticate_and_resolve_tenant(&headers, &config, "tp_test")
+            .expect_err("expected unauthorized");
         assert_eq!(err.0, StatusCode::UNAUTHORIZED);
     }
 
     #[test]
     fn tenant_rate_limiter_is_scoped_per_tenant() {
-        let limiter: RateLimiter<String, DefaultKeyedStateStore<String>, governor::clock::DefaultClock> =
-            RateLimiter::keyed(Quota::per_minute(NonZeroU32::new(1).expect("non zero quota")));
+        let limiter: RateLimiter<
+            String,
+            DefaultKeyedStateStore<String>,
+            governor::clock::DefaultClock,
+        > = RateLimiter::keyed(Quota::per_minute(
+            NonZeroU32::new(1).expect("non zero quota"),
+        ));
 
         assert!(limiter.check_key(&"tenant-a".to_string()).is_ok());
         assert!(limiter.check_key(&"tenant-a".to_string()).is_err());
@@ -774,9 +806,11 @@ mod tests {
             name: "Apple Duplicate".to_string(),
         });
 
-        let details = validate_analyze_request(&request).expect_err("expected duplicate symbol error");
+        let details =
+            validate_analyze_request(&request).expect_err("expected duplicate symbol error");
 
-        assert!(details.iter().any(|entry| entry.get("code") == Some(&serde_json::Value::String("DUPLICATE_SYMBOL".to_string()))));
+        assert!(details.iter().any(|entry| entry.get("code")
+            == Some(&serde_json::Value::String("DUPLICATE_SYMBOL".to_string()))));
     }
 
     #[test]
@@ -787,7 +821,13 @@ mod tests {
 
         let details = validate_analyze_request(&request).expect_err("expected validation failure");
 
-        assert!(details.iter().any(|entry| entry.get("code") == Some(&serde_json::Value::String("INVALID_LOOKBACK_HOURS".to_string()))));
-        assert!(details.iter().any(|entry| entry.get("code") == Some(&serde_json::Value::String("INVALID_MAX_ARTICLES".to_string()))));
+        assert!(details.iter().any(|entry| entry.get("code")
+            == Some(&serde_json::Value::String(
+                "INVALID_LOOKBACK_HOURS".to_string()
+            ))));
+        assert!(details.iter().any(|entry| entry.get("code")
+            == Some(&serde_json::Value::String(
+                "INVALID_MAX_ARTICLES".to_string()
+            ))));
     }
 }

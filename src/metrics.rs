@@ -1,6 +1,6 @@
 use std::collections::HashMap;
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Mutex;
 use std::time::Duration;
 
 const MAX_DURATION_SAMPLES: usize = 4096;
@@ -29,13 +29,17 @@ impl MetricsRegistry {
     pub fn observe_request(&self, duration: Duration, tier_exhausted: bool) {
         let duration_ms = duration.as_millis() as u64;
         self.request_count.fetch_add(1, Ordering::Relaxed);
-        self.request_duration_sum_ms.fetch_add(duration_ms, Ordering::Relaxed);
+        self.request_duration_sum_ms
+            .fetch_add(duration_ms, Ordering::Relaxed);
 
         if tier_exhausted {
             self.tier_exhaustions.fetch_add(1, Ordering::Relaxed);
         }
 
-        let mut durations = self.request_durations_ms.lock().expect("request_durations_ms poisoned");
+        let mut durations = self
+            .request_durations_ms
+            .lock()
+            .expect("request_durations_ms poisoned");
         durations.push(duration_ms);
         if durations.len() > MAX_DURATION_SAMPLES {
             let overflow = durations.len() - MAX_DURATION_SAMPLES;
@@ -57,7 +61,10 @@ impl MetricsRegistry {
     }
 
     pub fn record_provider_error(&self, provider: &str, status_class: &str) {
-        let mut errors = self.provider_errors.lock().expect("provider_errors poisoned");
+        let mut errors = self
+            .provider_errors
+            .lock()
+            .expect("provider_errors poisoned");
         *errors
             .entry((provider.to_string(), status_class.to_string()))
             .or_insert(0) += 1;
@@ -103,9 +110,18 @@ impl MetricsRegistry {
 
         out.push_str("# HELP request_duration_ms Request duration summary in milliseconds.\\n");
         out.push_str("# TYPE request_duration_ms summary\\n");
-        out.push_str(&format!("request_duration_ms{{quantile=\"0.50\"}} {:.3}\\n", p50));
-        out.push_str(&format!("request_duration_ms{{quantile=\"0.95\"}} {:.3}\\n", p95));
-        out.push_str(&format!("request_duration_ms{{quantile=\"0.99\"}} {:.3}\\n", p99));
+        out.push_str(&format!(
+            "request_duration_ms{{quantile=\"0.50\"}} {:.3}\\n",
+            p50
+        ));
+        out.push_str(&format!(
+            "request_duration_ms{{quantile=\"0.95\"}} {:.3}\\n",
+            p95
+        ));
+        out.push_str(&format!(
+            "request_duration_ms{{quantile=\"0.99\"}} {:.3}\\n",
+            p99
+        ));
         out.push_str(&format!("request_duration_ms_sum {}\\n", request_sum));
         out.push_str(&format!("request_duration_ms_count {}\\n", request_count));
 
@@ -115,15 +131,27 @@ impl MetricsRegistry {
         } else {
             cache_hits as f64 / total_cache as f64
         };
-        out.push_str("# HELP cache_hit_ratio Cache hit ratio across in-memory and Redis lookups.\\n");
+        out.push_str(
+            "# HELP cache_hit_ratio Cache hit ratio across in-memory and Redis lookups.\\n",
+        );
         out.push_str("# TYPE cache_hit_ratio gauge\\n");
         out.push_str(&format!("cache_hit_ratio {:.6}\\n", cache_hit_ratio));
 
-        out.push_str("# HELP provider_error_rate Provider error ratio by provider and status class.\\n");
+        out.push_str(
+            "# HELP provider_error_rate Provider error ratio by provider and status class.\\n",
+        );
         out.push_str("# TYPE provider_error_rate gauge\\n");
 
-        let calls = self.provider_calls.lock().expect("provider_calls poisoned").clone();
-        let errors = self.provider_errors.lock().expect("provider_errors poisoned").clone();
+        let calls = self
+            .provider_calls
+            .lock()
+            .expect("provider_calls poisoned")
+            .clone();
+        let errors = self
+            .provider_errors
+            .lock()
+            .expect("provider_errors poisoned")
+            .clone();
         for ((provider, status_class), error_count) in errors {
             let call_count = calls.get(&provider).copied().unwrap_or(0);
             let rate = if call_count == 0 {
@@ -137,7 +165,9 @@ impl MetricsRegistry {
             ));
         }
 
-        out.push_str("# HELP fallback_transition_count Count of fallback transitions between tiers.\\n");
+        out.push_str(
+            "# HELP fallback_transition_count Count of fallback transitions between tiers.\\n",
+        );
         out.push_str("# TYPE fallback_transition_count counter\\n");
         let transitions = self
             .fallback_transitions

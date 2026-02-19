@@ -22,13 +22,25 @@ fn provider_failover_order_is_consistent_in_source() {
         .expect("fetch_llm_batch_sentiment should delimit single section");
     let single_section = &source[single_start..single_end];
 
-    let batch_tiingo = batch_section.find("tiingo_url").expect("batch tiingo reference missing");
-    let batch_marketaux = batch_section.find("marketaux_url").expect("batch marketaux reference missing");
-    let batch_finnhub = batch_section.find("finn_url").expect("batch finnhub reference missing");
+    let batch_tiingo = batch_section
+        .find("tiingo_url")
+        .expect("batch tiingo reference missing");
+    let batch_marketaux = batch_section
+        .find("marketaux_url")
+        .expect("batch marketaux reference missing");
+    let batch_finnhub = batch_section
+        .find("finn_url")
+        .expect("batch finnhub reference missing");
 
-    let single_tiingo = single_section.find("tiingo_url").expect("single tiingo reference missing");
-    let single_marketaux = single_section.find("marketaux_url").expect("single marketaux reference missing");
-    let single_finnhub = single_section.find("finn_url").expect("single finnhub reference missing");
+    let single_tiingo = single_section
+        .find("tiingo_url")
+        .expect("single tiingo reference missing");
+    let single_marketaux = single_section
+        .find("marketaux_url")
+        .expect("single marketaux reference missing");
+    let single_finnhub = single_section
+        .find("finn_url")
+        .expect("single finnhub reference missing");
 
     assert!(batch_tiingo < batch_marketaux && batch_marketaux < batch_finnhub);
     assert!(single_tiingo < single_marketaux && single_marketaux < single_finnhub);

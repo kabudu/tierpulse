@@ -21,7 +21,10 @@ fn openapi_contract_has_expected_version_and_info() {
     let doc = load_openapi();
 
     assert_eq!(doc.get("openapi").and_then(Value::as_str), Some("3.1.0"));
-    assert_eq!(lookup(&doc, &["info", "title"]).as_str(), Some("tierpulse API"));
+    assert_eq!(
+        lookup(&doc, &["info", "title"]).as_str(),
+        Some("tierpulse API")
+    );
     assert_eq!(lookup(&doc, &["info", "version"]).as_str(), Some("1.0.0"));
 }
 
@@ -79,9 +82,12 @@ fn analyze_endpoint_declares_required_responses_and_error_envelope_refs() {
 fn error_envelope_schema_matches_runtime_contract_fields() {
     let doc = load_openapi();
 
-    let required = lookup(&doc, &["components", "schemas", "ErrorEnvelope", "required"])
-        .as_sequence()
-        .expect("ErrorEnvelope.required should be an array");
+    let required = lookup(
+        &doc,
+        &["components", "schemas", "ErrorEnvelope", "required"],
+    )
+    .as_sequence()
+    .expect("ErrorEnvelope.required should be an array");
 
     let required_fields: Vec<&str> = required.iter().filter_map(Value::as_str).collect();
     for expected in [

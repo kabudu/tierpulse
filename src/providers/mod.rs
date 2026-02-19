@@ -1,16 +1,16 @@
+use anyhow::{Context, Result};
+use chrono::{Duration as ChronoDuration, Utc};
 use reqwest::Client;
-use anyhow::{Result, Context};
 use serde::Deserialize;
-use chrono::{Utc, Duration as ChronoDuration};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration as StdDuration, SystemTime, UNIX_EPOCH};
 use tokio::time::sleep;
 
 use crate::config::Config;
-use crate::metrics::MetricsRegistry;
-use crate::models::{Symbol, SentimentResult};
 use crate::egress;
+use crate::metrics::MetricsRegistry;
+use crate::models::{SentimentResult, Symbol};
 
 const MAX_RETRIES: u32 = 2;
 const BASE_BACKOFF_MS: u64 = 120;
@@ -34,7 +34,8 @@ fn jitter_ms() -> u64 {
 
 async fn backoff_sleep(attempt: u32) {
     let exponent = attempt.min(4);
-    let delay = (BASE_BACKOFF_MS.saturating_mul(1_u64 << exponent) + jitter_ms()).min(MAX_BACKOFF_MS);
+    let delay =
+        (BASE_BACKOFF_MS.saturating_mul(1_u64 << exponent) + jitter_ms()).min(MAX_BACKOFF_MS);
     sleep(StdDuration::from_millis(delay)).await;
 }
 
@@ -71,7 +72,9 @@ where
         }
     }
 
-    Err(anyhow::anyhow!("request failed after retry budget exhausted"))
+    Err(anyhow::anyhow!(
+        "request failed after retry budget exhausted"
+    ))
 }
 
 #[derive(Debug, Deserialize)]
@@ -187,7 +190,8 @@ pub async fn fetch_batch_news(
     }
 
     // Identify symbols that still need news
-    let missing_tickers: Vec<&String> = tickers.iter()
+    let missing_tickers: Vec<&String> = tickers
+        .iter()
         .filter(|t| !results.contains_key(*t) || results[*t].is_empty())
         .collect();
 
@@ -211,22 +215,31 @@ pub async fn fetch_batch_news(
         }
         attempted_marketaux = true;
 
-        let missing_param = missing_tickers.iter().map(|s| s.to_string()).collect::<Vec<_>>().join(",");
+        let missing_param = missing_tickers
+            .iter()
+            .map(|s| s.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
         let marketaux_url = format!(
             "https://api.marketaux.com/v1/news/all?symbols={}&filter_entities=true&limit={}&api_token={}",
-            missing_param, 
+            missing_param,
             max_articles * missing_tickers.len() as i32,
             key
         );
 
         if egress::enforce_allowed_url(&marketaux_url, config).is_ok() {
-            if let Ok(res) = send_with_retry("marketaux", metrics, || client.get(&marketaux_url)).await {
+            if let Ok(res) =
+                send_with_retry("marketaux", metrics, || client.get(&marketaux_url)).await
+            {
                 if res.status().is_success() {
                     if let Ok(response) = res.json::<MarketAuxResponse>().await {
                         for item in response.data {
                             for entity in item.entities {
                                 if tickers.contains(&entity.symbol) {
-                                    results.entry(entity.symbol).or_default().push(item.title.clone());
+                                    results
+                                        .entry(entity.symbol)
+                                        .or_default()
+                                        .push(item.title.clone());
                                 }
                             }
                         }
@@ -257,13 +270,15 @@ pub async fn fetch_batch_news(
             let from_date = to_date - ChronoDuration::hours(_lookback_hours.into());
             let finn_url = format!(
                 "https://finnhub.io/api/v1/company-news?symbol={}&from={}&to={}",
-                ticker, from_date.format("%Y-%m-%d"), to_date.format("%Y-%m-%d")
+                ticker,
+                from_date.format("%Y-%m-%d"),
+                to_date.format("%Y-%m-%d")
             );
 
             if egress::enforce_allowed_url(&finn_url, config).is_err() {
                 continue;
             }
-            
+
             if let Ok(res) = send_with_retry("finnhub", metrics, || {
                 client
                     .get(&finn_url)
@@ -274,7 +289,11 @@ pub async fn fetch_batch_news(
             {
                 if res.status().is_success() {
                     if let Ok(news) = res.json::<Vec<FinnhubNews>>().await {
-                        let titles: Vec<String> = news.into_iter().take(max_articles as usize).map(|n| n.headline).collect();
+                        let titles: Vec<String> = news
+                            .into_iter()
+                            .take(max_articles as usize)
+                            .map(|n| n.headline)
+                            .collect();
                         if !titles.is_empty() {
                             results.insert(ticker.clone(), titles);
                         }
@@ -306,8 +325,7 @@ pub async fn fetch_news(
     // 1. Primary: Tiingo News API (Strict 5s timeout)
     let tiingo_url = format!(
         "https://api.tiingo.com/tiingo/news?tickers={}&limit={}",
-        symbol.ticker,
-        max_articles
+        symbol.ticker, max_articles
     );
 
     egress::enforce_allowed_url(&tiingo_url, config)?;
@@ -334,7 +352,8 @@ pub async fn fetch_news(
             symbol.ticker, max_articles, key
         );
         egress::enforce_allowed_url(&marketaux_url, config)?;
-        if let Ok(res) = send_with_retry("marketaux", metrics, || client.get(&marketaux_url)).await {
+        if let Ok(res) = send_with_retry("marketaux", metrics, || client.get(&marketaux_url)).await
+        {
             if res.status().is_success() {
                 if let Ok(body) = res.json::<MarketAuxResponse>().await {
                     return Ok(body.data.into_iter().map(|n| n.title).collect());
@@ -365,7 +384,11 @@ pub async fn fetch_news(
         {
             if res.status().is_success() {
                 if let Ok(news) = res.json::<Vec<FinnhubNews>>().await {
-                    return Ok(news.into_iter().take(max_articles as usize).map(|n| n.headline).collect());
+                    return Ok(news
+                        .into_iter()
+                        .take(max_articles as usize)
+                        .map(|n| n.headline)
+                        .collect());
                 }
             }
         }
@@ -392,13 +415,17 @@ pub async fn fetch_llm_batch_sentiment(
         )
     } else {
         (
-            config.deepseek_key.as_ref().context("DeepSeek key missing")?,
+            config
+                .deepseek_key
+                .as_ref()
+                .context("DeepSeek key missing")?,
             "https://api.deepseek.com/v1/chat/completions",
             "deepseek-chat",
         )
     };
 
-    let symbols_desc = symbols.iter()
+    let symbols_desc = symbols
+        .iter()
         .map(|s| format!("{} ({})", s.name, s.ticker))
         .collect::<Vec<_>>()
         .join(", ");
@@ -471,8 +498,12 @@ pub fn parse_llm_content_to_results(content: &str) -> Result<Vec<SentimentResult
 mod tests {
     #[test]
     fn retry_policy_excludes_429_and_includes_5xx() {
-        assert!(!super::should_retry_status(reqwest::StatusCode::TOO_MANY_REQUESTS));
-        assert!(super::should_retry_status(reqwest::StatusCode::INTERNAL_SERVER_ERROR));
+        assert!(!super::should_retry_status(
+            reqwest::StatusCode::TOO_MANY_REQUESTS
+        ));
+        assert!(super::should_retry_status(
+            reqwest::StatusCode::INTERNAL_SERVER_ERROR
+        ));
         assert!(super::should_retry_status(reqwest::StatusCode::BAD_GATEWAY));
     }
 
@@ -533,6 +564,9 @@ mod tests {
         // Implementation: Verify logic flow branch coverage in fetch_news
         let mock_success = true;
         let secondary_called = !mock_success;
-        assert!(!secondary_called, "Secondary should not be called when primary succeeds");
+        assert!(
+            !secondary_called,
+            "Secondary should not be called when primary succeeds"
+        );
     }
 }
