@@ -14,7 +14,7 @@ RUN python export_model.py && \
     mv model_onnx/tokenizer.json /app/tokenizer.json
 
 # Stage 2: Binary Build (Rust)
-FROM rust:1.75-slim AS builder
+FROM rust:1.92-slim AS builder
 WORKDIR /app
 RUN apt-get update && apt-get install -y pkg-config libssl-dev clang && rm -rf /var/lib/apt/lists/*
 
@@ -29,11 +29,16 @@ RUN mkdir src && echo "fn main() {}" > src/main.rs && \
 COPY . .
 RUN cargo build --release
 
+# Find the onnxruntime share library and place it in the predictable location
+# The ort crate usually downloads it to the build artifacts directory
+RUN find target/release -name "libonnxruntime.so*" -exec cp {} /app/libonnxruntime.so \;
+
 # Stage 3: Production (Distroless)
 # Using gcr.io/distroless/cc-debian12 for programs that link with glibc
 FROM gcr.io/distroless/cc-debian12 AS runtime
 WORKDIR /app
 COPY --from=builder /app/target/release/tierpulse /app/tierpulse
+COPY --from=builder /app/libonnxruntime.so* /usr/lib/
 COPY --from=model-prep /app/model.onnx /app/model.onnx
 COPY --from=model-prep /app/tokenizer.json /app/tokenizer.json
 

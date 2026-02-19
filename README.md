@@ -303,4 +303,10 @@ The system utilizes a multi-stage pipeline:
 - **Versioned OpenAPI contract:** `openapi/openapi.v1.yaml` is the source-of-truth versioned API contract for public endpoints.
 - **Contract enforcement path:** `tests/openapi_contract_tests.rs` validates core OpenAPI invariants (version, required paths, response envelope refs, and `ErrorEnvelope` required fields) and is executed by the dedicated CI `contract-test` job.
 
----
+## 🤝 Contributing
+
+We welcome contributions of all kinds! Please see our [Contributing Guide](CONTRIBUTORS.md) for details on how to get started, our code of conduct, and our pull request process.
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
