@@ -35,6 +35,7 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
             type=sha,prefix=
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/master' }}
             type=ref,event=branch
 
       - name: Build and push Docker image
