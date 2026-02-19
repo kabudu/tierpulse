@@ -2,7 +2,7 @@
 # Exports, prunes, and quantizes FinBERT to ONNX
 FROM python:3.11-slim AS model-prep
 WORKDIR /app
-RUN pip install --no-cache-dir torch transformers onnx onnxruntime-silu optimum[onnxruntime]
+RUN pip install --no-cache-dir torch transformers onnx optimum[onnxruntime]
 
 # Copy the export script
 COPY scripts/export_model.py .
@@ -10,7 +10,8 @@ COPY scripts/export_model.py .
 # Run the export and quantization
 # We output to /app/model.onnx for use in the next stage
 RUN python export_model.py && \
-    mv model_onnx/model.onnx /app/model.onnx
+    mv model_onnx/model.onnx /app/model.onnx && \
+    mv model_onnx/tokenizer.json /app/tokenizer.json
 
 # Stage 2: Binary Build (Rust)
 FROM rust:1.75-slim AS builder
@@ -34,6 +35,7 @@ FROM gcr.io/distroless/cc-debian12 AS runtime
 WORKDIR /app
 COPY --from=builder /app/target/release/tierpulse /app/tierpulse
 COPY --from=model-prep /app/model.onnx /app/model.onnx
+COPY --from=model-prep /app/tokenizer.json /app/tokenizer.json
 
 # Environment variables
 ENV TP_LOG_LEVEL=INFO
