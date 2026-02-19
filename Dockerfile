@@ -15,7 +15,7 @@ RUN python export_model.py --arch $TARGETARCH && \
     mv model_onnx/tokenizer.json /app/tokenizer.json
 
 # Stage 2: Binary Build (Rust)
-# Optimized: Uses host architecture (AMD64) to cross-compile for ARM64
+# Uses latest slim toolchain image (Debian 13/trixie lineage) for successful ort linking
 FROM --platform=$BUILDPLATFORM rust:1.92-slim AS builder
 ARG TARGETARCH
 ARG BUILDARCH
@@ -111,8 +111,8 @@ RUN if [ "$TARGETARCH" = "arm64" ]; then \
 RUN find target -name "libonnxruntime.so*" -exec cp {} /app/libonnxruntime.so \;
 
 # Stage 3: Production (Distroless)
-# Using gcr.io/distroless/cc-debian12 for programs that link with glibc
-FROM gcr.io/distroless/cc-debian12 AS runtime
+# Use Debian 13 distroless runtime to match builder ABI expectations (glibc/libstdc++)
+FROM gcr.io/distroless/cc-debian13 AS runtime
 WORKDIR /app
 COPY --from=builder /app/tierpulse /app/tierpulse
 COPY --from=builder /app/libonnxruntime.so* /usr/lib/
