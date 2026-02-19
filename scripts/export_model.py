@@ -28,7 +28,7 @@ def main():
     # Removing weight impact for "Zero-Bloat" performance
     print("[*] Applying Structured Pruning...")
     
-    # 3. Save model
+    # 3. Save model !
     model.save_pretrained(SAVE_DIR)
     tokenizer.save_pretrained(SAVE_DIR)
     
