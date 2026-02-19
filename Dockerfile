@@ -53,17 +53,19 @@ RUN mkdir src && echo "fn main() {}" > src/main.rs && \
     if [ "$TARGETARCH" = "$BUILDARCH" ]; then \
       cargo build --release; \
     elif [ "$TARGETARCH" = "arm64" ]; then \
-      PKG_CONFIG_PATH=/usr/lib/aarch64-linux-gnu/pkgconfig \
-      OPENSSL_INCLUDE_DIR=/usr/include/aarch64-linux-gnu \
-      OPENSSL_LIB_DIR=/usr/lib/aarch64-linux-gnu \
+      PKG_CONFIG_ALLOW_CROSS=1 \
+      PKG_CONFIG_PATH_aarch64_unknown_linux_gnu=/usr/lib/aarch64-linux-gnu/pkgconfig \
+      AARCH64_UNKNOWN_LINUX_GNU_OPENSSL_INCLUDE_DIR=/usr/include/aarch64-linux-gnu \
+      AARCH64_UNKNOWN_LINUX_GNU_OPENSSL_LIB_DIR=/usr/lib/aarch64-linux-gnu \
       CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc \
       CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc \
       CXX_aarch64_unknown_linux_gnu=aarch64-linux-gnu-g++ \
       cargo build --release --target aarch64-unknown-linux-gnu; \
     elif [ "$TARGETARCH" = "amd64" ] && [ "$BUILDARCH" != "amd64" ]; then \
-      PKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig \
-      OPENSSL_INCLUDE_DIR=/usr/include/x86_64-linux-gnu \
-      OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu \
+      PKG_CONFIG_ALLOW_CROSS=1 \
+      PKG_CONFIG_PATH_x86_64_unknown_linux_gnu=/usr/lib/x86_64-linux-gnu/pkgconfig \
+      X86_64_UNKNOWN_LINUX_GNU_OPENSSL_INCLUDE_DIR=/usr/include/x86_64-linux-gnu \
+      X86_64_UNKNOWN_LINUX_GNU_OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu \
       CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=x86_64-linux-gnu-gcc \
       CC_x86_64_unknown_linux_gnu=x86_64-linux-gnu-gcc \
       CXX_x86_64_unknown_linux_gnu=x86_64-linux-gnu-g++ \
@@ -80,19 +82,21 @@ RUN if [ "$TARGETARCH" = "arm64" ]; then \
         cargo build --release && \
         cp target/release/tierpulse /app/tierpulse; \
       else \
-  PKG_CONFIG_PATH=/usr/lib/aarch64-linux-gnu/pkgconfig \
-  OPENSSL_INCLUDE_DIR=/usr/include/aarch64-linux-gnu \
-  OPENSSL_LIB_DIR=/usr/lib/aarch64-linux-gnu \
-      CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc \
-      CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc \
-      CXX_aarch64_unknown_linux_gnu=aarch64-linux-gnu-g++ \
-  cargo build --release --target aarch64-unknown-linux-gnu && \
-      cp target/aarch64-unknown-linux-gnu/release/tierpulse /app/tierpulse; \
+        PKG_CONFIG_ALLOW_CROSS=1 \
+        PKG_CONFIG_PATH_aarch64_unknown_linux_gnu=/usr/lib/aarch64-linux-gnu/pkgconfig \
+        AARCH64_UNKNOWN_LINUX_GNU_OPENSSL_INCLUDE_DIR=/usr/include/aarch64-linux-gnu \
+        AARCH64_UNKNOWN_LINUX_GNU_OPENSSL_LIB_DIR=/usr/lib/aarch64-linux-gnu \
+        CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc \
+        CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc \
+        CXX_aarch64_unknown_linux_gnu=aarch64-linux-gnu-g++ \
+        cargo build --release --target aarch64-unknown-linux-gnu && \
+        cp target/aarch64-unknown-linux-gnu/release/tierpulse /app/tierpulse; \
       fi; \
     elif [ "$TARGETARCH" = "amd64" ] && [ "$BUILDARCH" != "amd64" ]; then \
-      PKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig \
-      OPENSSL_INCLUDE_DIR=/usr/include/x86_64-linux-gnu \
-      OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu \
+      PKG_CONFIG_ALLOW_CROSS=1 \
+      PKG_CONFIG_PATH_x86_64_unknown_linux_gnu=/usr/lib/x86_64-linux-gnu/pkgconfig \
+      X86_64_UNKNOWN_LINUX_GNU_OPENSSL_INCLUDE_DIR=/usr/include/x86_64-linux-gnu \
+      X86_64_UNKNOWN_LINUX_GNU_OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu \
       CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=x86_64-linux-gnu-gcc \
       CC_x86_64_unknown_linux_gnu=x86_64-linux-gnu-gcc \
       CXX_x86_64_unknown_linux_gnu=x86_64-linux-gnu-g++ \
