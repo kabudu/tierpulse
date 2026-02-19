@@ -1,6 +1,6 @@
 # tierpulse: High-Scale Financial Sentiment Intelligence Engine
 
-[![Publish Docker Image](https://github.com/kabudu/tierpulse/actions/workflows/deploy.yml/badge.svg)](https://github.com/kabudu/tierpulse/actions/workflows/deploy.yml)
+[![Pipeline Status](https://github.com/kabudu/tierpulse/actions/workflows/pipeline.yml/badge.svg)](https://github.com/kabudu/tierpulse/actions/workflows/pipeline.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 **tierpulse** is an institutional-grade, high-throughput financial sentiment analysis engine built in **Rust**. It utilizes a three-tier "Intelligence Failover" strategy with **High-Scale Batching** to provide ultra-reliable sentiment analyzes for trading bots and financial applications.
@@ -297,7 +297,7 @@ The system utilizes a multi-stage pipeline:
 
 ### Quality Gates & Contract Enforcement
 
-- **CI quality gates:** `.github/workflows/ci.yml` runs `cargo fmt --all -- --check`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test --all-targets --all-features`, and `cargo audit`.
+- **CI quality gates:** `.github/workflows/pipeline.yml` runs `cargo fmt --all -- --check`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test --all-targets --all-features`, and `cargo audit`.
 - **Integration test coverage:** `tests/provider_failover_llm_schema_tests.rs` verifies provider failover ordering parity and strict LLM schema parsing behavior.
 - **HTTP contract/error coverage:** `tests/analyze_validation_http_tests.rs` validates typed error envelope parity (`400/401/429/503`) and operational endpoint exposure.
 - **Versioned OpenAPI contract:** `openapi/openapi.v1.yaml` is the source-of-truth versioned API contract for public endpoints.
