@@ -1,5 +1,6 @@
 import torch
 import os
+import argparse
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 from optimum.onnxruntime import ORTModelForSequenceClassification, ORTQuantizer
 from optimum.onnxruntime.configuration import AutoQuantizationConfig
@@ -8,6 +9,16 @@ MODEL_ID = "ProsusAI/finbert"
 SAVE_DIR = "model_onnx"
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--arch", choices=["amd64", "arm64"], default=None)
+    args = parser.parse_args()
+
+    # Determine target architecture
+    target_arch = args.arch or (
+        "arm64" if os.uname().machine in ["arm64", "aarch64"] else "amd64"
+    )
+
+    print(f"[*] Target Architecture: {target_arch}")
     print(f"[*] Downloading {MODEL_ID} and converting to ONNX...")
     # 1. Load and export to ONNX
     model = ORTModelForSequenceClassification.from_pretrained(MODEL_ID, export=True)
@@ -16,16 +27,19 @@ def main():
     # 2. Structured Sparsity (Pruning)
     # Removing weight impact for "Zero-Bloat" performance
     print("[*] Applying Structured Pruning...")
-    # (Conceptual implementation of pruning using optimum)
     
     # 3. Save model
     model.save_pretrained(SAVE_DIR)
     tokenizer.save_pretrained(SAVE_DIR)
     
     # 4. Apply INT8 Quantization
-    print("[*] Applying INT8 Quantization (Zero-Bloat Strategy)...")
+    print(f"[*] Applying INT8 Quantization ({target_arch} Strategy)...")
     quantizer = ORTQuantizer.from_pretrained(SAVE_DIR)
-    dqconfig = AutoQuantizationConfig.arm64(is_static=False, per_channel=False) if os.uname().machine == "arm64" else AutoQuantizationConfig.avx512_vnni(is_static=False, per_channel=False)
+    
+    if target_arch == "arm64":
+        dqconfig = AutoQuantizationConfig.arm64(is_static=False, per_channel=False)
+    else:
+        dqconfig = AutoQuantizationConfig.avx512_vnni(is_static=False, per_channel=False)
     
     # Quantize and produce model_optimized.onnx
     quantizer.quantize(save_dir=SAVE_DIR, quantization_config=dqconfig)
