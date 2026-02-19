@@ -139,12 +139,41 @@ Provider auth transport summary (verified against provider docs):
 - **Finnhub:** Supports both query `token` and `X-Finnhub-Token: <api_key>` header for GET requests.
 - **MarketAux:** Documentation uses `api_token` as a query parameter for REST requests.
 
-### 2. Run with Docker
+### 2. Run with Docker (Docker Hub)
+
+`tierpulse` is published on Docker Hub at `boxedcode/tierpulse`.
+
+**Pull image:**
 
 ```bash
 docker pull boxedcode/tierpulse:latest
-docker run -p 8080:8080 --env-file .env boxedcode/tierpulse:latest
 ```
+
+**Run container:**
+
+```bash
+docker run --name tierpulse \
+  -p 8080:8080 \
+  --env-file .env \
+  boxedcode/tierpulse:latest
+```
+
+**Verify startup:**
+
+```bash
+curl -s http://localhost:8080/health/live
+curl -s http://localhost:8080/health/ready
+```
+
+**Optional: pin to a specific tag/digest for reproducible deploys**
+
+```bash
+docker pull boxedcode/tierpulse:<tag>
+# or
+docker pull boxedcode/tierpulse@sha256:<digest>
+```
+
+**Architecture note:** the published image is multi-arch (`linux/amd64`, `linux/arm64`), so Docker automatically pulls the correct variant for your host.
 
 ## 📊 API Contract
 
