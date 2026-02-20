@@ -51,7 +51,7 @@ Create a `.env` file or set environment variables. All variables prefixed with `
 | `TP_ONNX_THREADS`                     | `2`          | CPU thread allocation for the `ort` session.                                                                     |
 | `TP_MODEL_PATH`                       | `model.onnx` | Path to the INT8 quantized ONNX model.                                                                           |
 | `TP_LOG_LEVEL`                        | `INFO`       | Logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`).                                                             |
-| `TP_ORT_LOG_LEVEL`                    | `warn`       | Log level override for ONNX Runtime internals (`ort::logging`) to control allocator/session log noise.          |
+| `TP_ORT_LOG_LEVEL`                    | `warn`       | Log level override for ONNX Runtime internals (`ort::logging`) to control allocator/session log noise.           |
 
 ### Authentication Recommendation: API Key vs JWT
 

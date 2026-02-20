@@ -38,6 +38,7 @@ const MIN_LOOKBACK_HOURS: i32 = 1;
 const MAX_LOOKBACK_HOURS: i32 = 168;
 const MIN_MAX_ARTICLES_PER_SYMBOL: i32 = 1;
 const MAX_MAX_ARTICLES_PER_SYMBOL: i32 = 20;
+const LLM_FALLBACK_BATCH_SIZE: usize = 15;
 
 pub struct AppState {
     pub config: Config,
@@ -370,7 +371,7 @@ pub async fn analyze_handler(
             }
         }
 
-        for chunk in pending_llm_symbols.chunks(15) {
+        for chunk in pending_llm_symbols.chunks(LLM_FALLBACK_BATCH_SIZE) {
             let symbols_to_fetch: Vec<Symbol> = chunk.iter().map(|(_, s)| s.clone()).collect();
             match providers::fetch_llm_batch_sentiment(
                 &symbols_to_fetch,
@@ -829,5 +830,17 @@ mod tests {
             == Some(&serde_json::Value::String(
                 "INVALID_MAX_ARTICLES".to_string()
             ))));
+    }
+
+    #[test]
+    fn llm_fallback_chunking_respects_boundary() {
+        let pending: Vec<usize> = (0..31).collect();
+        let chunk_sizes: Vec<usize> = pending
+            .chunks(LLM_FALLBACK_BATCH_SIZE)
+            .map(|chunk| chunk.len())
+            .collect();
+
+        assert_eq!(chunk_sizes, vec![15, 15, 1]);
+        assert_eq!(chunk_sizes.len(), 3);
     }
 }
