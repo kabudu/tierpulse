@@ -51,6 +51,7 @@ Create a `.env` file or set environment variables. All variables prefixed with `
 | `TP_ONNX_THREADS`                     | `2`          | CPU thread allocation for the `ort` session.                                                                     |
 | `TP_MODEL_PATH`                       | `model.onnx` | Path to the INT8 quantized ONNX model.                                                                           |
 | `TP_LOG_LEVEL`                        | `INFO`       | Logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`).                                                             |
+| `TP_ORT_LOG_LEVEL`                    | `warn`       | Log level override for ONNX Runtime internals (`ort::logging`) to control allocator/session log noise.          |
 
 ### Authentication Recommendation: API Key vs JWT
 
@@ -138,6 +139,16 @@ Provider auth transport summary (verified against provider docs):
 - **Tiingo:** Supports both query `token` and `Authorization: Token <api_token>` header for REST.
 - **Finnhub:** Supports both query `token` and `X-Finnhub-Token: <api_key>` header for GET requests.
 - **MarketAux:** Documentation uses `api_token` as a query parameter for REST requests.
+
+### LLM `400` Troubleshooting
+
+If logs include `LLM request failed: 400 ...`, use this quick checklist:
+
+- Confirm `TP_PRIMARY_LLM` matches a configured key (`TP_GROK_KEY` or `TP_DEEPSEEK_KEY`).
+- Validate provider key scope/quota and that the key is active (not expired/revoked).
+- Inspect the logged response body preview for provider-specific validation errors.
+- Verify outbound egress allows the selected endpoint (`api.x.ai` or `api.deepseek.com`).
+- If needed, switch `TP_PRIMARY_LLM` to the alternate provider to verify failover behavior.
 
 ### 2. Run with Docker (Docker Hub)
 

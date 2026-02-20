@@ -455,14 +455,20 @@ pub async fn fetch_llm_batch_sentiment(
                 "messages": [
                     { "role": "system", "content": "You are a financial sentiment analyst tasked with high-throughput batch evaluation. Respond only in strict JSON array format." },
                     { "role": "user", "content": prompt }
-                ],
-                "response_format": { "type": "json_object" }
+                ]
             }))
     })
     .await?;
 
     if !res.status().is_success() {
-        return Err(anyhow::anyhow!("LLM request failed: {}", res.status()));
+        let status = res.status();
+        let body = res.text().await.unwrap_or_default();
+        let body_preview: String = body.chars().take(512).collect();
+        return Err(anyhow::anyhow!(
+            "LLM request failed: {} body={}",
+            status,
+            body_preview
+        ));
     }
 
     let json: serde_json::Value = res.json().await?;
