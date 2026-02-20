@@ -20,7 +20,11 @@ async fn main() -> anyhow::Result<()> {
     let ort_log_level = std::env::var("TP_ORT_LOG_LEVEL").unwrap_or_else(|_| "warn".to_string());
     let ort_directive = format!("ort::logging={}", ort_log_level)
         .parse()
-        .unwrap_or_else(|_| "ort::logging=warn".parse().expect("valid fallback directive"));
+        .unwrap_or_else(|_| {
+            "ort::logging=warn"
+                .parse()
+                .expect("valid fallback directive")
+        });
 
     let filter = EnvFilter::new(&config.log_level)
         .add_directive(Level::INFO.into())
