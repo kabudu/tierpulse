@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration as StdDuration, SystemTime, UNIX_EPOCH};
 use tokio::time::sleep;
+use tracing::info;
 
 use crate::config::Config;
 use crate::egress;
@@ -129,6 +130,7 @@ fn consume_budget(remaining_budget: &mut u32) -> bool {
 }
 
 pub async fn fetch_batch_news(
+    request_id: &str,
     symbols: &[Symbol],
     _lookback_hours: i32,
     max_articles: i32,
@@ -136,6 +138,14 @@ pub async fn fetch_batch_news(
     client: &Client,
     metrics: &Arc<MetricsRegistry>,
 ) -> Result<BatchNewsOutcome> {
+    info!(
+        "request_id={} News batch start: symbols={}, max_articles_per_symbol={}, provider_budget={}",
+        request_id,
+        symbols.len(),
+        max_articles,
+        config.provider_call_budget_per_request
+    );
+
     let mut remaining_budget = config.provider_call_budget_per_request;
     let mut results: HashMap<String, Vec<String>> = HashMap::new();
     let tickers: Vec<String> = symbols.iter().map(|s| s.ticker.clone()).collect();
@@ -158,6 +168,11 @@ pub async fn fetch_batch_news(
 
     if consume_budget(&mut remaining_budget) {
         attempted_tiingo = true;
+        info!(
+            "request_id={} News provider attempt: provider=tiingo symbols={}",
+            request_id,
+            tickers.len()
+        );
         if egress::enforce_allowed_url(&tiingo_url, config).is_ok() {
             if let Ok(res) = send_with_retry("tiingo", metrics, || {
                 client
@@ -167,6 +182,11 @@ pub async fn fetch_batch_news(
             })
             .await
             {
+                info!(
+                    "request_id={} News provider response: provider=tiingo status={}",
+                    request_id,
+                    res.status()
+                );
                 if res.status().is_success() {
                     if let Ok(news_items) = res.json::<Vec<TiingoNews>>().await {
                         for item in news_items {
@@ -214,6 +234,11 @@ pub async fn fetch_batch_news(
             });
         }
         attempted_marketaux = true;
+        info!(
+            "request_id={} News provider attempt: provider=marketaux symbols_missing={}",
+            request_id,
+            missing_tickers.len()
+        );
 
         let missing_param = missing_tickers
             .iter()
@@ -231,6 +256,11 @@ pub async fn fetch_batch_news(
             if let Ok(res) =
                 send_with_retry("marketaux", metrics, || client.get(&marketaux_url)).await
             {
+                info!(
+                    "request_id={} News provider response: provider=marketaux status={}",
+                    request_id,
+                    res.status()
+                );
                 if res.status().is_success() {
                     if let Ok(response) = res.json::<MarketAuxResponse>().await {
                         for item in response.data {
@@ -265,6 +295,11 @@ pub async fn fetch_batch_news(
                 break;
             }
             attempted_finnhub = true;
+            info!(
+                "request_id={} News provider attempt: provider=finnhub symbol={}",
+                request_id,
+                ticker
+            );
 
             let to_date = Utc::now();
             let from_date = to_date - ChronoDuration::hours(_lookback_hours.into());
@@ -287,6 +322,11 @@ pub async fn fetch_batch_news(
             })
             .await
             {
+                info!(
+                    "request_id={} News provider response: provider=finnhub status={}",
+                    request_id,
+                    res.status()
+                );
                 if res.status().is_success() {
                     if let Ok(news) = res.json::<Vec<FinnhubNews>>().await {
                         let titles: Vec<String> = news
@@ -306,6 +346,19 @@ pub async fn fetch_batch_news(
     let all_news_sources_attempted = attempted_tiingo
         && (!marketaux_needed || attempted_marketaux)
         && (!finnhub_needed || attempted_finnhub);
+
+    let resolved_tickers = results.values().filter(|titles| !titles.is_empty()).count();
+    info!(
+        "request_id={} News batch complete: symbols={}, resolved_tickers={}, missing_tickers={}, attempted_tiingo={}, attempted_marketaux={}, attempted_finnhub={}, budget_exhausted={}",
+        request_id,
+        tickers.len(),
+        resolved_tickers,
+        tickers.len().saturating_sub(resolved_tickers),
+        attempted_tiingo,
+        attempted_marketaux,
+        attempted_finnhub,
+        budget_exhausted
+    );
 
     Ok(BatchNewsOutcome {
         news_by_ticker: results,
@@ -398,6 +451,7 @@ pub async fn fetch_news(
 }
 
 pub async fn fetch_llm_batch_sentiment(
+    request_id: &str,
     symbols: &[Symbol],
     config: &Config,
     client: &Client,
@@ -446,6 +500,13 @@ pub async fn fetch_llm_batch_sentiment(
         "deepseek"
     };
 
+    info!(
+        "request_id={} LLM batch start: provider={} symbols={}",
+        request_id,
+        provider_name,
+        symbols.len()
+    );
+
     let res = send_with_retry(provider_name, metrics, || {
         client
             .post(api_url)
@@ -475,6 +536,13 @@ pub async fn fetch_llm_batch_sentiment(
     let content = json["choices"][0]["message"]["content"]
         .as_str()
         .context("Invalid LLM response structure")?;
+
+    info!(
+        "request_id={} LLM batch complete: provider={} symbols={}",
+        request_id,
+        provider_name,
+        symbols.len()
+    );
 
     parse_llm_content_to_results(content)
 }

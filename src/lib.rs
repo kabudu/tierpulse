@@ -284,6 +284,7 @@ pub async fn analyze_handler(
                 .collect();
 
             match providers::fetch_batch_news(
+                &request_id,
                 &only_symbols,
                 payload.lookback_hours,
                 payload.max_articles_per_symbol,
@@ -374,6 +375,7 @@ pub async fn analyze_handler(
         for chunk in pending_llm_symbols.chunks(LLM_FALLBACK_BATCH_SIZE) {
             let symbols_to_fetch: Vec<Symbol> = chunk.iter().map(|(_, s)| s.clone()).collect();
             match providers::fetch_llm_batch_sentiment(
+                &request_id,
                 &symbols_to_fetch,
                 &state.config,
                 &state.http_client,
