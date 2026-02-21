@@ -297,8 +297,7 @@ pub async fn fetch_batch_news(
             attempted_finnhub = true;
             info!(
                 "request_id={} News provider attempt: provider=finnhub symbol={}",
-                request_id,
-                ticker
+                request_id, ticker
             );
 
             let to_date = Utc::now();
