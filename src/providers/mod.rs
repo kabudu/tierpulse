@@ -199,6 +199,64 @@ fn alphavantage_extract_titles_by_ticker(
     extracted
 }
 
+fn alphavantage_payload_value_has_notice(payload: &serde_json::Value) -> bool {
+    payload.get("Note").is_some()
+        || payload.get("Information").is_some()
+        || payload.get("Error Message").is_some()
+}
+
+fn alphavantage_extract_titles_from_value_by_ticker(
+    payload: &serde_json::Value,
+    requested_tickers: &[String],
+    per_ticker_limit: usize,
+) -> HashMap<String, Vec<String>> {
+    if alphavantage_payload_value_has_notice(payload) {
+        return HashMap::new();
+    }
+
+    let ticker_lookup: HashMap<String, String> = requested_tickers
+        .iter()
+        .map(|ticker| (ticker.to_ascii_uppercase(), ticker.clone()))
+        .collect();
+
+    let mut extracted: HashMap<String, Vec<String>> = HashMap::new();
+
+    let Some(feed) = payload.get("feed").and_then(|v| v.as_array()) else {
+        return extracted;
+    };
+
+    for item in feed {
+        let title = item
+            .get("title")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+        if title.is_empty() {
+            continue;
+        }
+
+        let Some(ticker_sentiment) = item.get("ticker_sentiment").and_then(|v| v.as_array()) else {
+            continue;
+        };
+
+        for sentiment in ticker_sentiment {
+            let Some(ticker) = sentiment.get("ticker").and_then(|v| v.as_str()) else {
+                continue;
+            };
+            let normalized = ticker.to_ascii_uppercase();
+            if let Some(request_ticker) = ticker_lookup.get(&normalized) {
+                let titles = extracted.entry(request_ticker.clone()).or_default();
+                if titles.len() < per_ticker_limit {
+                    titles.push(title.clone());
+                }
+            }
+        }
+    }
+
+    extracted
+}
+
 pub async fn fetch_batch_news(
     request_id: &str,
     symbols: &[Symbol],
@@ -400,8 +458,12 @@ pub async fn fetch_batch_news(
                         res.status()
                     );
                     if res.status().is_success() {
-                        if let Ok(response) = res.json::<AlphaVantageNewsResponse>().await {
+                        let body = res.text().await.unwrap_or_default();
+                        if let Ok(response) =
+                            serde_json::from_str::<AlphaVantageNewsResponse>(&body)
+                        {
                             if alphavantage_payload_has_notice(&response) {
+                                metrics.record_provider_error("alphavantage", "2xx_payload_error");
                                 info!(
                                     "request_id={} News provider payload notice: provider=alphavantage note={} information={} error_message={}",
                                     request_id,
@@ -412,6 +474,36 @@ pub async fn fetch_batch_news(
                             } else {
                                 let extracted = alphavantage_extract_titles_by_ticker(
                                     &response,
+                                    &tickers,
+                                    max_articles.max(1) as usize,
+                                );
+                                for (ticker, titles) in extracted {
+                                    results.entry(ticker).or_default().extend(titles);
+                                }
+                            }
+                        } else if let Ok(payload) = serde_json::from_str::<serde_json::Value>(&body)
+                        {
+                            if alphavantage_payload_value_has_notice(&payload) {
+                                metrics.record_provider_error("alphavantage", "2xx_payload_error");
+                                info!(
+                                    "request_id={} News provider payload notice: provider=alphavantage note={} information={} error_message={}",
+                                    request_id,
+                                    payload
+                                        .get("Note")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or(""),
+                                    payload
+                                        .get("Information")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or(""),
+                                    payload
+                                        .get("Error Message")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("")
+                                );
+                            } else {
+                                let extracted = alphavantage_extract_titles_from_value_by_ticker(
+                                    &payload,
                                     &tickers,
                                     max_articles.max(1) as usize,
                                 );
@@ -576,15 +668,35 @@ pub async fn fetch_news(
             send_with_retry("alphavantage", metrics, || client.get(&alphavantage_url)).await
         {
             if res.status().is_success() {
-                if let Ok(response) = res.json::<AlphaVantageNewsResponse>().await {
-                    let extracted = alphavantage_extract_titles_by_ticker(
-                        &response,
-                        std::slice::from_ref(&symbol.ticker),
-                        max_articles.max(1) as usize,
-                    );
-                    if let Some(titles) = extracted.get(&symbol.ticker) {
-                        if !titles.is_empty() {
-                            return Ok(titles.clone());
+                let body = res.text().await.unwrap_or_default();
+                if let Ok(response) = serde_json::from_str::<AlphaVantageNewsResponse>(&body) {
+                    if alphavantage_payload_has_notice(&response) {
+                        metrics.record_provider_error("alphavantage", "2xx_payload_error");
+                    } else {
+                        let extracted = alphavantage_extract_titles_by_ticker(
+                            &response,
+                            std::slice::from_ref(&symbol.ticker),
+                            max_articles.max(1) as usize,
+                        );
+                        if let Some(titles) = extracted.get(&symbol.ticker) {
+                            if !titles.is_empty() {
+                                return Ok(titles.clone());
+                            }
+                        }
+                    }
+                } else if let Ok(payload) = serde_json::from_str::<serde_json::Value>(&body) {
+                    if alphavantage_payload_value_has_notice(&payload) {
+                        metrics.record_provider_error("alphavantage", "2xx_payload_error");
+                    } else {
+                        let extracted = alphavantage_extract_titles_from_value_by_ticker(
+                            &payload,
+                            std::slice::from_ref(&symbol.ticker),
+                            max_articles.max(1) as usize,
+                        );
+                        if let Some(titles) = extracted.get(&symbol.ticker) {
+                            if !titles.is_empty() {
+                                return Ok(titles.clone());
+                            }
                         }
                     }
                 }
@@ -815,6 +927,25 @@ mod tests {
         );
     }
 
+    #[test]
+    fn alphavantage_batch_branch_enforces_budget_before_call() {
+        let source = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/providers/mod.rs"));
+        let alphavantage_batch_section = extract_section(
+            source,
+            "// 3. Tertiary: Alpha Vantage NEWS_SENTIMENT (Batched fallback for unresolved symbols)",
+            "// 4. Quaternary: Finnhub (Individual fallback for last-resort symbols)",
+        );
+
+        assert!(
+            alphavantage_batch_section.contains("if !consume_budget(&mut remaining_budget)"),
+            "alphavantage branch should gate call by provider budget"
+        );
+        assert!(
+            alphavantage_batch_section.contains("attempted_alphavantage = true"),
+            "alphavantage branch should mark attempted status after budget gate"
+        );
+    }
+
     #[tokio::test]
     async fn test_sequential_failover_logic() {
         // Concept test: If primary succeeds, we never attempt fallbacks
@@ -880,8 +1011,8 @@ mod tests {
         assert_eq!(tsla_titles.len(), 1);
         assert_eq!(aapl_titles[0], "AAPL rallies after earnings");
         assert_eq!(tsla_titles[0], "TSLA slides on margin concerns");
-        assert!(extracted.get("MSFT").is_none());
-        assert!(extracted.get("NVDA").is_none());
+        assert!(!extracted.contains_key("MSFT"));
+        assert!(!extracted.contains_key("NVDA"));
     }
 
     #[test]
@@ -907,5 +1038,47 @@ mod tests {
         let extracted =
             super::alphavantage_extract_titles_by_ticker(&response, &["AAPL".to_string()], 5);
         assert!(extracted.is_empty());
+    }
+
+    #[test]
+    fn alphavantage_value_fallback_skips_malformed_items_and_keeps_valid() {
+        let payload = r#"
+                {
+                    "feed": [
+                        {
+                            "title": "Malformed sentiment shape",
+                            "ticker_sentiment": {"ticker": "AAPL"}
+                        },
+                        {
+                            "title": "AAPL valid fallback item",
+                            "ticker_sentiment": [
+                                {"ticker": "AAPL"}
+                            ]
+                        },
+                        {
+                            "title": 42,
+                            "ticker_sentiment": [
+                                {"ticker": "AAPL"}
+                            ]
+                        }
+                    ]
+                }
+                "#;
+
+        assert!(serde_json::from_str::<super::AlphaVantageNewsResponse>(payload).is_err());
+
+        let value: serde_json::Value =
+            serde_json::from_str(payload).expect("fallback payload should parse as generic json");
+        let extracted = super::alphavantage_extract_titles_from_value_by_ticker(
+            &value,
+            &["AAPL".to_string()],
+            5,
+        );
+
+        let titles = extracted
+            .get("AAPL")
+            .expect("AAPL should be present from valid fallback item");
+        assert_eq!(titles.len(), 1);
+        assert_eq!(titles[0], "AAPL valid fallback item");
     }
 }

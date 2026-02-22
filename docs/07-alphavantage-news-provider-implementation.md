@@ -17,6 +17,10 @@ Out of scope:
 - Changing tier-3 LLM fallback logic.
 - Changing ONNX or sentiment model behavior.
 
+## Implementation status (as of 2026-02-22)
+
+Legend: `[x]` completed, `[ ]` not yet completed (including partial work still open).
+
 ---
 
 ## 2) Source-of-Truth API References (reviewed)
@@ -124,14 +128,14 @@ Recommended defaults for tierpulse:
 
 Parse as a minimal strongly-typed structure with fallbacks:
 
-- top-level feed array (commonly `feed`)
-- per-item title text (`title`)
-- per-item ticker sentiment list (commonly `ticker_sentiment` with `ticker`)
+- [x] top-level feed array (commonly `feed`)
+- [x] per-item title text (`title`)
+- [x] per-item ticker sentiment list (commonly `ticker_sentiment` with `ticker`)
 
 If strict struct decode fails:
 
-- fallback to `serde_json::Value` extraction for required fields.
-- skip malformed items (do not fail whole provider call unless response is fundamentally invalid).
+- [x] fallback to `serde_json::Value` extraction for required fields.
+- [x] skip malformed items (do not fail whole provider call unless response is fundamentally invalid).
 
 ### 5.3 Error-shape handling
 
@@ -139,9 +143,9 @@ Alpha Vantage may return HTTP 200 with payload-level error/notice messages.
 
 Implementation rule:
 
-- Treat payload containing known non-data indicators (e.g., `Note`, `Information`, `Error Message`) as provider-level non-success for extraction purposes.
-- Record provider error metric with status class surrogate (`2xx_payload_error`) or `4xx/5xx` when actual HTTP status reflects failure.
-- Continue failover.
+- [x] Treat payload containing known non-data indicators (e.g., `Note`, `Information`, `Error Message`) as provider-level non-success for extraction purposes.
+- [x] Record provider error metric with status class surrogate (`2xx_payload_error`) or `4xx/5xx` when actual HTTP status reflects failure.
+- [x] Continue failover.
 
 ---
 
@@ -151,21 +155,21 @@ Implementation rule:
 
 Add:
 
-- `alphavantage_key: Option<String>`
+- [x] `alphavantage_key: Option<String>`
 
 Environment variable:
 
-- `TP_ALPHAVANTAGE_KEY`
+- [x] `TP_ALPHAVANTAGE_KEY`
 
 Debug masking:
 
-- Ensure key is masked in `fmt::Debug` implementation.
+- [x] Ensure key is masked in `fmt::Debug` implementation.
 
 ### 6.2 Egress (`src/egress.rs`)
 
 Add host to default allowlist:
 
-- `www.alphavantage.co`
+- [x] `www.alphavantage.co`
 
 Keep HTTPS-only and port-443 enforcement unchanged.
 
@@ -173,34 +177,34 @@ Keep HTTPS-only and port-443 enforcement unchanged.
 
 Add response models:
 
-- `AlphaVantageNewsResponse`
-- `AlphaVantageNewsItem`
-- `AlphaVantageTickerSentiment`
+- [x] `AlphaVantageNewsResponse`
+- [x] `AlphaVantageNewsItem`
+- [x] `AlphaVantageTickerSentiment`
 
 Add integration branch in `fetch_batch_news` between MarketAux and Finnhub:
 
-- execute only if `config.alphavantage_key.is_some()` and unresolved tickers remain.
-- consume budget before call.
-- emit request_id-correlated logs for attempt/response/summary.
-- call via existing `send_with_retry("alphavantage", ...)`.
+- [x] execute only if `config.alphavantage_key.is_some()` and unresolved tickers remain.
+- [x] consume budget before call.
+- [x] emit request_id-correlated logs for attempt/response/summary.
+- [x] call via existing `send_with_retry("alphavantage", ...)`.
 
 URL construction specifics:
 
-- endpoint: `https://www.alphavantage.co/query`
-- params: function, tickers, time_from, sort, limit, apikey
+- [x] endpoint: `https://www.alphavantage.co/query`
+- [x] params: function, tickers, time_from, sort, limit, apikey
 
 Ticker normalization:
 
-- Compare case-insensitive against requested tickers.
-- Preserve existing output key casing (from request ticker).
+- [x] Compare case-insensitive against requested tickers.
+- [x] Preserve existing output key casing (from request ticker).
 
 ### 6.4 Documentation (`README.md`)
 
 Update:
 
-- env var table with `TP_ALPHAVANTAGE_KEY`
-- provider failover summary to include Alpha Vantage order
-- troubleshooting section with Alpha Vantage-specific notes (rate limits and payload notices)
+- [x] env var table with `TP_ALPHAVANTAGE_KEY`
+- [x] provider failover summary to include Alpha Vantage order
+- [x] troubleshooting section with Alpha Vantage-specific notes (rate limits and payload notices)
 
 ### 6.5 Tests
 
@@ -208,22 +212,22 @@ Unit/integration tests to add or update:
 
 1. **Failover order test updates**
 
-- Existing tests in `tests/provider_failover_llm_schema_tests.rs` and provider module source-order checks.
-- Assert order becomes: Tiingo < MarketAux < AlphaVantage < Finnhub.
+- [x] Existing tests in `tests/provider_failover_llm_schema_tests.rs` and provider module source-order checks.
+- [x] Assert order becomes: Tiingo < MarketAux < AlphaVantage < Finnhub.
 
 2. **Alpha Vantage parsing tests**
 
-- Valid sample payload maps titles to expected tickers.
-- Payload with `Note`/`Information` triggers non-success path.
-- Partial malformed item is skipped, valid items still consumed.
+- [x] Valid sample payload maps titles to expected tickers.
+- [x] Payload with `Note`/`Information` triggers non-success path.
+- [x] Partial malformed item is skipped, valid items still consumed.
 
 3. **Egress tests**
 
-- `www.alphavantage.co` allowed by default.
+- [x] `www.alphavantage.co` allowed by default.
 
 4. **Budget behavior test**
 
-- Ensure Alpha Vantage invocation respects and consumes provider budget.
+- [x] Ensure Alpha Vantage invocation respects and consumes provider budget.
 
 ---
 
@@ -231,9 +235,9 @@ Unit/integration tests to add or update:
 
 Given documented free-tier limit (25/day), treat Alpha Vantage as **optional and best-effort**:
 
-- Do not hard-fail request if Alpha Vantage unavailable/rate-limited.
-- Continue to Finnhub and then LLM as designed.
-- Record provider errors with clear status class labels.
+- [x] Do not hard-fail request if Alpha Vantage unavailable/rate-limited.
+- [x] Continue to Finnhub and then LLM as designed.
+- [x] Record provider errors with clear status class labels.
 
 Optional production enhancement (not required for initial integration):
 
@@ -246,48 +250,49 @@ Optional production enhancement (not required for initial integration):
 
 All Alpha Vantage logs must include `request_id`:
 
-- provider attempt
-- provider response status
-- parse/notice outcomes
-- batch completion summaries
+- [x] provider attempt
+- [x] provider response status
+- [x] parse/notice outcomes
+- [x] batch completion summaries
 
 Metrics impact:
 
-- `provider_calls{provider="alphavantage"}`
-- `provider_error_rate{provider="alphavantage",status_class="..."}`
-- fallback transitions continue to represent tier transitions, not intra-tier provider hops.
+- [x] `provider_calls{provider="alphavantage"}`
+- [x] `provider_error_rate{provider="alphavantage",status_class="..."}`
+- [x] fallback transitions continue to represent tier transitions, not intra-tier provider hops.
 
 ---
 
 ## 9) Security requirements
 
 - API key in query string is required by endpoint contract; this is acceptable if:
-  - dynamic logs are redacted (already in place for sensitive query params)
-  - no raw URL with key is emitted unredacted
-- Keep header sensitivity and redaction controls unchanged.
-- Keep egress host restrictions enforced.
+  - [x] dynamic logs are redacted (already in place for sensitive query params)
+  - [x] no raw URL with key is emitted unredacted
+- [x] Keep header sensitivity and redaction controls unchanged.
+- [x] Keep egress host restrictions enforced.
 
 ---
 
 ## 10) Backward compatibility
 
-- If `TP_ALPHAVANTAGE_KEY` is unset, behavior remains unchanged except for code path awareness.
-- Existing Tiingo/MarketAux/Finnhub and LLM flows remain intact.
-- No API contract change for `/api/v1/analyze` responses.
+- [x] If `TP_ALPHAVANTAGE_KEY` is unset, behavior remains unchanged except for code path awareness.
+- [x] Existing Tiingo/MarketAux/Finnhub and LLM flows remain intact.
+- [x] No API contract change for `/api/v1/analyze` responses.
 
 ---
 
 ## 11) Implementation sequence (recommended)
 
-1. Add config field + env parsing + masked debug.
-2. Add egress allowlist host and tests.
-3. Implement Alpha Vantage fetch branch and parsing.
-4. Update provider failover order tests and parsing tests.
-5. Update README/docs.
-6. Run full suite:
+1. [x] Add config field + env parsing + masked debug.
+2. [x] Add egress allowlist host and tests.
+3. [x] Implement Alpha Vantage fetch branch and parsing.
+4. [x] Update provider failover order tests and parsing tests.
+5. [x] Update README/docs.
+6. [x] Run full suite:
    - `cargo fmt --all -- --check`
-   - `cargo clippy --all-targets --all-features -- -D warnings`
-   - `cargo test --all-targets -- --nocapture`
+
+- `cargo clippy --all-targets --all-features -- -D warnings`
+- `cargo test --all-targets -- --nocapture`
 
 ---
 
@@ -295,23 +300,23 @@ Metrics impact:
 
 Functional:
 
-- With valid `TP_ALPHAVANTAGE_KEY`, unresolved tickers after MarketAux are queried via Alpha Vantage before Finnhub.
-- Results are merged into `news_by_ticker` and consumed by tier-1 local sentiment where available.
+- [x] With valid `TP_ALPHAVANTAGE_KEY`, unresolved tickers after MarketAux are queried via Alpha Vantage before Finnhub.
+- [x] Results are merged into `news_by_ticker` and consumed by tier-1 local sentiment where available.
 
 Reliability:
 
-- Throttle/notice/error payloads do not crash requests; failover continues.
-- Provider budget behavior remains deterministic.
+- [x] Throttle/notice/error payloads do not crash requests; failover continues.
+- [x] Provider budget behavior remains deterministic.
 
 Security/ops:
 
-- No sensitive key leakage in logs.
-- `request_id` appears in Alpha Vantage provider logs.
+- [x] No sensitive key leakage in logs.
+- [x] `request_id` appears in Alpha Vantage provider logs.
 
 Testing:
 
-- Updated failover order tests pass.
-- New Alpha Vantage parsing/error tests pass.
+- [x] Updated failover order tests pass.
+- [x] New Alpha Vantage parsing/error tests pass.
 
 ---
 

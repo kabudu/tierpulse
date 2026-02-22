@@ -152,6 +152,15 @@ If logs include `LLM request failed: 400 ...`, use this quick checklist:
 - Verify outbound egress allows the selected endpoint (`api.x.ai` or `api.deepseek.com`).
 - If needed, switch `TP_PRIMARY_LLM` to the alternate provider to verify failover behavior.
 
+### Alpha Vantage Troubleshooting
+
+If Alpha Vantage appears configured but contributes no articles, use this quick checklist:
+
+- Confirm `TP_ALPHAVANTAGE_KEY` is set and active.
+- Validate egress allows `https://www.alphavantage.co`.
+- Check logs for payload-level notices (`Note`, `Information`, `Error Message`), which are treated as non-success and trigger failover.
+- Watch for free-tier quota exhaustion patterns (officially up to 25 requests/day), then rely on downstream fallbacks.
+
 ### 2. Run with Docker (Docker Hub)
 
 `tierpulse` is published on Docker Hub at `boxedcode/tierpulse`.
