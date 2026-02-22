@@ -35,6 +35,7 @@ Create a `.env` file or set environment variables. All variables prefixed with `
 | `TP_TIINGO_KEY`                       | **Required** | Primary news provider API key.                                                                                   |
 | `TP_FINNHUB_KEY`                      | `null`       | Tertiary news provider key (final fallback tier).                                                                |
 | `TP_MARKETAUX_KEY`                    | `null`       | Secondary news provider key (batched fallback tier).                                                             |
+| `TP_ALPHAVANTAGE_KEY`                 | `null`       | Additional batched fallback news provider key via Alpha Vantage `NEWS_SENTIMENT`.                                |
 | `TP_GROK_KEY`                         | `null`       | xAI API key (utilizes `grok-4-1-fast-reasoning`).                                                                |
 | `TP_DEEPSEEK_KEY`                     | `null`       | DeepSeek API key (utilizes `deepseek-chat`).                                                                     |
 | `TP_PRIMARY_LLM`                      | `grok`       | Primary LLM engine (`grok` or `deepseek`).                                                                       |
@@ -72,8 +73,8 @@ When auth is enabled, tenant identity is extracted at request time and enforced 
 - **Header-over-query preference:** For providers that support it (for example Tiingo), credentials are sent via headers instead of query-string tokens.
 - **Fallback behavior:** Providers that only support query tokens remain supported, with token values redacted from dynamic log output.
 - **Retry policy:** Outbound provider/LLM calls use bounded jittered exponential backoff retries for HTTP 5xx and transient network errors; HTTP 429 is intentionally not retried to preserve quota-pooling behavior.
-- **Strict LLM escalation guard:** Tier-3 LLM fallback is only allowed after news sources were fully attempted in order (`Tiingo -> MarketAux -> Finnhub`) or when `TP_PROVIDER_CALL_BUDGET_PER_REQUEST` is exhausted.
-- **Outbound egress allowlist (Layer 1):** Application-level outbound URL enforcement only allows HTTPS traffic to approved provider domains (`api.tiingo.com`, `finnhub.io`, `api.marketaux.com`, `api.x.ai`, `api.deepseek.com`).
+- **Strict LLM escalation guard:** Tier-3 LLM fallback is only allowed after news sources were fully attempted in order (`Tiingo -> MarketAux -> Alpha Vantage -> Finnhub`) or when `TP_PROVIDER_CALL_BUDGET_PER_REQUEST` is exhausted.
+- **Outbound egress allowlist (Layer 1):** Application-level outbound URL enforcement only allows HTTPS traffic to approved provider domains (`api.tiingo.com`, `finnhub.io`, `api.marketaux.com`, `www.alphavantage.co`, `api.x.ai`, `api.deepseek.com`).
 - **Config-driven egress override:** `TP_EGRESS_ALLOWLIST` can extend the allowed host set (for controlled environment-specific endpoints) without code changes.
 
 ### Operational Endpoints (Observability + Health)
@@ -139,6 +140,7 @@ Provider auth transport summary (verified against provider docs):
 - **Tiingo:** Supports both query `token` and `Authorization: Token <api_token>` header for REST.
 - **Finnhub:** Supports both query `token` and `X-Finnhub-Token: <api_key>` header for GET requests.
 - **MarketAux:** Documentation uses `api_token` as a query parameter for REST requests.
+- **Alpha Vantage (`NEWS_SENTIMENT`):** Uses query-parameter API key authentication (`apikey=<key>`).
 
 ### LLM `400` Troubleshooting
 

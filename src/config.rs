@@ -11,6 +11,7 @@ pub struct Config {
     pub tiingo_key: String,
     pub finnhub_key: Option<String>,
     pub marketaux_key: Option<String>,
+    pub alphavantage_key: Option<String>,
     pub grok_key: Option<String>,
     pub deepseek_key: Option<String>,
 
@@ -50,6 +51,10 @@ impl fmt::Debug for Config {
             .field(
                 "finnhub_key",
                 &self.finnhub_key.as_ref().map(|_| "[MASKED]"),
+            )
+            .field(
+                "alphavantage_key",
+                &self.alphavantage_key.as_ref().map(|_| "[MASKED]"),
             )
             .field("grok_key", &self.grok_key.as_ref().map(|_| "[MASKED]"))
             .field("auth_mode", &self.auth_mode)
@@ -145,6 +150,7 @@ impl Config {
             tiingo_key: env::var("TP_TIINGO_KEY").expect("TP_TIINGO_KEY is required"),
             finnhub_key: env::var("TP_FINNHUB_KEY").ok(),
             marketaux_key: env::var("TP_MARKETAUX_KEY").ok(),
+            alphavantage_key: env::var("TP_ALPHAVANTAGE_KEY").ok(),
             grok_key: env::var("TP_GROK_KEY").ok(),
             deepseek_key: env::var("TP_DEEPSEEK_KEY").ok(),
 

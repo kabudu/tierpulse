@@ -656,6 +656,7 @@ mod tests {
             tiingo_key: "tiingo-test-key".to_string(),
             finnhub_key: None,
             marketaux_key: None,
+            alphavantage_key: None,
             grok_key: None,
             deepseek_key: None,
             primary_llm: "grok".to_string(),

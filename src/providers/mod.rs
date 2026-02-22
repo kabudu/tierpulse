@@ -106,6 +106,30 @@ struct MarketAuxEntity {
 }
 
 #[derive(Debug, Deserialize)]
+struct AlphaVantageNewsResponse {
+    #[serde(default)]
+    feed: Vec<AlphaVantageNewsItem>,
+    #[serde(rename = "Note")]
+    note: Option<String>,
+    #[serde(rename = "Information")]
+    information: Option<String>,
+    #[serde(rename = "Error Message")]
+    error_message: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct AlphaVantageNewsItem {
+    title: Option<String>,
+    #[serde(default)]
+    ticker_sentiment: Vec<AlphaVantageTickerSentiment>,
+}
+
+#[derive(Debug, Deserialize)]
+struct AlphaVantageTickerSentiment {
+    ticker: String,
+}
+
+#[derive(Debug, Deserialize)]
 struct LlmSentimentRaw {
     symbol: String,
     sentiment_score: f32,
@@ -129,10 +153,56 @@ fn consume_budget(remaining_budget: &mut u32) -> bool {
     true
 }
 
+fn alphavantage_time_from_utc(lookback_hours: i32) -> String {
+    (Utc::now() - ChronoDuration::hours(lookback_hours.into()))
+        .format("%Y%m%dT%H%M")
+        .to_string()
+}
+
+fn alphavantage_payload_has_notice(response: &AlphaVantageNewsResponse) -> bool {
+    response.note.is_some() || response.information.is_some() || response.error_message.is_some()
+}
+
+fn alphavantage_extract_titles_by_ticker(
+    response: &AlphaVantageNewsResponse,
+    requested_tickers: &[String],
+    per_ticker_limit: usize,
+) -> HashMap<String, Vec<String>> {
+    if alphavantage_payload_has_notice(response) {
+        return HashMap::new();
+    }
+
+    let ticker_lookup: HashMap<String, String> = requested_tickers
+        .iter()
+        .map(|ticker| (ticker.to_ascii_uppercase(), ticker.clone()))
+        .collect();
+
+    let mut extracted: HashMap<String, Vec<String>> = HashMap::new();
+
+    for item in &response.feed {
+        let title = item.title.as_deref().unwrap_or_default().trim().to_string();
+        if title.is_empty() {
+            continue;
+        }
+
+        for sentiment in &item.ticker_sentiment {
+            let normalized = sentiment.ticker.to_ascii_uppercase();
+            if let Some(request_ticker) = ticker_lookup.get(&normalized) {
+                let titles = extracted.entry(request_ticker.clone()).or_default();
+                if titles.len() < per_ticker_limit {
+                    titles.push(title.clone());
+                }
+            }
+        }
+    }
+
+    extracted
+}
+
 pub async fn fetch_batch_news(
     request_id: &str,
     symbols: &[Symbol],
-    _lookback_hours: i32,
+    lookback_hours: i32,
     max_articles: i32,
     config: &Config,
     client: &Client,
@@ -152,11 +222,13 @@ pub async fn fetch_batch_news(
     let tickers_param = tickers.join(",");
     let attempted_tiingo: bool;
     let mut attempted_marketaux = false;
+    let mut attempted_alphavantage = false;
     let mut attempted_finnhub = false;
     let mut budget_exhausted = false;
 
     let has_marketaux = config.marketaux_key.is_some();
     let marketaux_needed = has_marketaux;
+    let alphavantage_needed = config.alphavantage_key.is_some();
     let mut finnhub_needed = false;
 
     // 1. Primary: Tiingo News API (Batched)
@@ -279,7 +351,82 @@ pub async fn fetch_batch_news(
         }
     }
 
-    // 3. Tertiary: Finnhub (Individual fallback for last-resort symbols)
+    // 3. Tertiary: Alpha Vantage NEWS_SENTIMENT (Batched fallback for unresolved symbols)
+    if let Some(key) = &config.alphavantage_key {
+        let still_missing: Vec<&String> = tickers
+            .iter()
+            .filter(|t| !results.contains_key(*t) || results[*t].is_empty())
+            .collect();
+
+        if !still_missing.is_empty() {
+            if !consume_budget(&mut remaining_budget) {
+                budget_exhausted = true;
+                return Ok(BatchNewsOutcome {
+                    news_by_ticker: results,
+                    all_news_sources_attempted: false,
+                    budget_exhausted,
+                });
+            }
+
+            attempted_alphavantage = true;
+            info!(
+                "request_id={} News provider attempt: provider=alphavantage symbols_missing={}",
+                request_id,
+                still_missing.len()
+            );
+
+            let symbols_param = still_missing
+                .iter()
+                .map(|s| s.to_string())
+                .collect::<Vec<_>>()
+                .join(",");
+            let time_from = alphavantage_time_from_utc(lookback_hours);
+            let result_limit = (max_articles.max(1) as usize)
+                .saturating_mul(still_missing.len())
+                .saturating_mul(3);
+            let result_limit = result_limit.min(1000);
+            let alphavantage_url = format!(
+                "https://www.alphavantage.co/query?function=NEWS_SENTIMENT&tickers={}&time_from={}&sort=LATEST&limit={}&apikey={}",
+                symbols_param, time_from, result_limit, key
+            );
+
+            if egress::enforce_allowed_url(&alphavantage_url, config).is_ok() {
+                if let Ok(res) =
+                    send_with_retry("alphavantage", metrics, || client.get(&alphavantage_url)).await
+                {
+                    info!(
+                        "request_id={} News provider response: provider=alphavantage status={}",
+                        request_id,
+                        res.status()
+                    );
+                    if res.status().is_success() {
+                        if let Ok(response) = res.json::<AlphaVantageNewsResponse>().await {
+                            if alphavantage_payload_has_notice(&response) {
+                                info!(
+                                    "request_id={} News provider payload notice: provider=alphavantage note={} information={} error_message={}",
+                                    request_id,
+                                    response.note.as_deref().unwrap_or(""),
+                                    response.information.as_deref().unwrap_or(""),
+                                    response.error_message.as_deref().unwrap_or("")
+                                );
+                            } else {
+                                let extracted = alphavantage_extract_titles_by_ticker(
+                                    &response,
+                                    &tickers,
+                                    max_articles.max(1) as usize,
+                                );
+                                for (ticker, titles) in extracted {
+                                    results.entry(ticker).or_default().extend(titles);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 4. Quaternary: Finnhub (Individual fallback for last-resort symbols)
     // Finnhub company-news doesn't natively support batching tickers in a single GET symbol=A,B param.
     // We only call it for the leftovers to keep request count minimal.
     if let Some(key) = &config.finnhub_key {
@@ -301,7 +448,7 @@ pub async fn fetch_batch_news(
             );
 
             let to_date = Utc::now();
-            let from_date = to_date - ChronoDuration::hours(_lookback_hours.into());
+            let from_date = to_date - ChronoDuration::hours(lookback_hours.into());
             let finn_url = format!(
                 "https://finnhub.io/api/v1/company-news?symbol={}&from={}&to={}",
                 ticker,
@@ -344,17 +491,19 @@ pub async fn fetch_batch_news(
 
     let all_news_sources_attempted = attempted_tiingo
         && (!marketaux_needed || attempted_marketaux)
+        && (!alphavantage_needed || attempted_alphavantage)
         && (!finnhub_needed || attempted_finnhub);
 
     let resolved_tickers = results.values().filter(|titles| !titles.is_empty()).count();
     info!(
-        "request_id={} News batch complete: symbols={}, resolved_tickers={}, missing_tickers={}, attempted_tiingo={}, attempted_marketaux={}, attempted_finnhub={}, budget_exhausted={}",
+        "request_id={} News batch complete: symbols={}, resolved_tickers={}, missing_tickers={}, attempted_tiingo={}, attempted_marketaux={}, attempted_alphavantage={}, attempted_finnhub={}, budget_exhausted={}",
         request_id,
         tickers.len(),
         resolved_tickers,
         tickers.len().saturating_sub(resolved_tickers),
         attempted_tiingo,
         attempted_marketaux,
+        attempted_alphavantage,
         attempted_finnhub,
         budget_exhausted
     );
@@ -368,7 +517,7 @@ pub async fn fetch_batch_news(
 
 pub async fn fetch_news(
     symbol: &Symbol,
-    _lookback_hours: i32, // Simplified for brevity in this high-scale demo
+    lookback_hours: i32,
     max_articles: i32,
     config: &Config,
     client: &Client,
@@ -414,10 +563,39 @@ pub async fn fetch_news(
         }
     }
 
-    // 3. Tertiary: Finnhub (final fallback)
+    // 3. Tertiary: Alpha Vantage NEWS_SENTIMENT (batched-capable, single here)
+    if let Some(key) = &config.alphavantage_key {
+        let time_from = alphavantage_time_from_utc(lookback_hours);
+        let result_limit = ((max_articles.max(1) as usize).saturating_mul(3)).min(1000);
+        let alphavantage_url = format!(
+            "https://www.alphavantage.co/query?function=NEWS_SENTIMENT&tickers={}&time_from={}&sort=LATEST&limit={}&apikey={}",
+            symbol.ticker, time_from, result_limit, key
+        );
+        egress::enforce_allowed_url(&alphavantage_url, config)?;
+        if let Ok(res) =
+            send_with_retry("alphavantage", metrics, || client.get(&alphavantage_url)).await
+        {
+            if res.status().is_success() {
+                if let Ok(response) = res.json::<AlphaVantageNewsResponse>().await {
+                    let extracted = alphavantage_extract_titles_by_ticker(
+                        &response,
+                        std::slice::from_ref(&symbol.ticker),
+                        max_articles.max(1) as usize,
+                    );
+                    if let Some(titles) = extracted.get(&symbol.ticker) {
+                        if !titles.is_empty() {
+                            return Ok(titles.clone());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 4. Quaternary: Finnhub (final fallback)
     if let Some(key) = &config.finnhub_key {
         let to_date = Utc::now();
-        let from_date = to_date - ChronoDuration::hours(_lookback_hours.into());
+        let from_date = to_date - ChronoDuration::hours(lookback_hours.into());
         let to_fmt = to_date.format("%Y-%m-%d").to_string();
         let from_fmt = from_date.format("%Y-%m-%d").to_string();
 
@@ -610,6 +788,9 @@ mod tests {
         let batch_marketaux = batch_section
             .find("marketaux_url")
             .expect("batch path should reference marketaux_url");
+        let batch_alphavantage = batch_section
+            .find("alphavantage_url")
+            .expect("batch path should reference alphavantage_url");
         let batch_finnhub = batch_section
             .find("finn_url")
             .expect("batch path should reference finn_url");
@@ -617,17 +798,20 @@ mod tests {
         let single_marketaux = single_section
             .find("marketaux_url")
             .expect("single path should reference marketaux_url");
+        let single_alphavantage = single_section
+            .find("alphavantage_url")
+            .expect("single path should reference alphavantage_url");
         let single_finnhub = single_section
             .find("finn_url")
             .expect("single path should reference finn_url");
 
         assert!(
-            batch_marketaux < batch_finnhub,
-            "batch failover order drifted: expected Tiingo -> MarketAux -> Finnhub"
+            batch_marketaux < batch_alphavantage && batch_alphavantage < batch_finnhub,
+            "batch failover order drifted: expected Tiingo -> MarketAux -> AlphaVantage -> Finnhub"
         );
         assert!(
-            single_marketaux < single_finnhub,
-            "single failover order drifted: expected Tiingo -> MarketAux -> Finnhub"
+            single_marketaux < single_alphavantage && single_alphavantage < single_finnhub,
+            "single failover order drifted: expected Tiingo -> MarketAux -> AlphaVantage -> Finnhub"
         );
     }
 
@@ -641,5 +825,87 @@ mod tests {
             !secondary_called,
             "Secondary should not be called when primary succeeds"
         );
+    }
+
+    #[test]
+    fn alphavantage_payload_fixture_maps_feed_by_ticker() {
+        let payload = r#"
+                {
+                    "feed": [
+                        {
+                            "title": "AAPL rallies after earnings",
+                            "ticker_sentiment": [
+                                {"ticker": "AAPL"},
+                                {"ticker": "MSFT"}
+                            ]
+                        },
+                        {
+                            "title": "TSLA slides on margin concerns",
+                            "ticker_sentiment": [
+                                {"ticker": "TSLA"}
+                            ]
+                        },
+                        {
+                            "title": " ",
+                            "ticker_sentiment": [
+                                {"ticker": "AAPL"}
+                            ]
+                        },
+                        {
+                            "title": "Unmapped ticker article",
+                            "ticker_sentiment": [
+                                {"ticker": "NVDA"}
+                            ]
+                        }
+                    ]
+                }
+                "#;
+
+        let response: super::AlphaVantageNewsResponse =
+            serde_json::from_str(payload).expect("fixture payload should parse");
+        let extracted = super::alphavantage_extract_titles_by_ticker(
+            &response,
+            &["AAPL".to_string(), "TSLA".to_string()],
+            5,
+        );
+
+        let aapl_titles = extracted
+            .get("AAPL")
+            .expect("AAPL should be extracted from fixture");
+        let tsla_titles = extracted
+            .get("TSLA")
+            .expect("TSLA should be extracted from fixture");
+
+        assert_eq!(aapl_titles.len(), 1);
+        assert_eq!(tsla_titles.len(), 1);
+        assert_eq!(aapl_titles[0], "AAPL rallies after earnings");
+        assert_eq!(tsla_titles[0], "TSLA slides on margin concerns");
+        assert!(extracted.get("MSFT").is_none());
+        assert!(extracted.get("NVDA").is_none());
+    }
+
+    #[test]
+    fn alphavantage_payload_notice_blocks_extraction() {
+        let payload = r#"
+                {
+                    "Note": "Thank you for using Alpha Vantage!",
+                    "feed": [
+                        {
+                            "title": "Should not be used",
+                            "ticker_sentiment": [
+                                {"ticker": "AAPL"}
+                            ]
+                        }
+                    ]
+                }
+                "#;
+
+        let response: super::AlphaVantageNewsResponse =
+            serde_json::from_str(payload).expect("notice payload should parse");
+        assert!(super::alphavantage_payload_has_notice(&response));
+
+        let extracted =
+            super::alphavantage_extract_titles_by_ticker(&response, &["AAPL".to_string()], 5);
+        assert!(extracted.is_empty());
     }
 }

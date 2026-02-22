@@ -28,6 +28,9 @@ fn provider_failover_order_is_consistent_in_source() {
     let batch_marketaux = batch_section
         .find("marketaux_url")
         .expect("batch marketaux reference missing");
+    let batch_alphavantage = batch_section
+        .find("alphavantage_url")
+        .expect("batch alphavantage reference missing");
     let batch_finnhub = batch_section
         .find("finn_url")
         .expect("batch finnhub reference missing");
@@ -38,12 +41,23 @@ fn provider_failover_order_is_consistent_in_source() {
     let single_marketaux = single_section
         .find("marketaux_url")
         .expect("single marketaux reference missing");
+    let single_alphavantage = single_section
+        .find("alphavantage_url")
+        .expect("single alphavantage reference missing");
     let single_finnhub = single_section
         .find("finn_url")
         .expect("single finnhub reference missing");
 
-    assert!(batch_tiingo < batch_marketaux && batch_marketaux < batch_finnhub);
-    assert!(single_tiingo < single_marketaux && single_marketaux < single_finnhub);
+    assert!(
+        batch_tiingo < batch_marketaux
+            && batch_marketaux < batch_alphavantage
+            && batch_alphavantage < batch_finnhub
+    );
+    assert!(
+        single_tiingo < single_marketaux
+            && single_marketaux < single_alphavantage
+            && single_alphavantage < single_finnhub
+    );
 }
 
 #[test]

@@ -8,6 +8,7 @@ fn test_config() -> Config {
         tiingo_key: "tiingo-secret".to_string(),
         finnhub_key: Some("finnhub-secret".to_string()),
         marketaux_key: Some("marketaux-secret".to_string()),
+        alphavantage_key: Some("alphavantage-secret".to_string()),
         grok_key: Some("grok-secret".to_string()),
         deepseek_key: Some("deepseek-secret".to_string()),
         primary_llm: "grok".to_string(),

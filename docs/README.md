@@ -16,6 +16,8 @@ This folder contains a forensic implementation review of the current codebase ag
    - API consumer UX, developer experience, and operational readiness.
 6. `06-remediation-roadmap.md`
    - Prioritized implementation plan (P0/P1/P2), milestones, and acceptance criteria.
+7. `07-alphavantage-news-provider-implementation.md`
+   - Detailed implementation design for integrating Alpha Vantage `NEWS_SENTIMENT` as a tier-2 news provider.
 
 ## Assessment Scope
 

@@ -36,6 +36,9 @@ fn sensitive_values(config: &Config) -> Vec<String> {
     if let Some(v) = &config.marketaux_key {
         values.push(v.clone());
     }
+    if let Some(v) = &config.alphavantage_key {
+        values.push(v.clone());
+    }
     if let Some(v) = &config.grok_key {
         values.push(v.clone());
     }

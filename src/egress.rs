@@ -9,6 +9,7 @@ fn default_allowed_hosts() -> HashSet<&'static str> {
         "api.tiingo.com",
         "finnhub.io",
         "api.marketaux.com",
+        "www.alphavantage.co",
         "api.x.ai",
         "api.deepseek.com",
     ]
@@ -65,6 +66,7 @@ mod tests {
             tiingo_key: "tiingo-test-key".to_string(),
             finnhub_key: None,
             marketaux_key: None,
+            alphavantage_key: None,
             grok_key: None,
             deepseek_key: None,
             primary_llm: "grok".to_string(),
@@ -90,6 +92,12 @@ mod tests {
             &test_config(),
         );
         assert!(result.is_ok());
+
+        let alpha_result = enforce_allowed_url(
+            "https://www.alphavantage.co/query?function=NEWS_SENTIMENT&tickers=AAPL",
+            &test_config(),
+        );
+        assert!(alpha_result.is_ok());
     }
 
     #[test]
