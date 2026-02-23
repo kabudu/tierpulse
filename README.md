@@ -235,6 +235,21 @@ All error responses use a standardized envelope:
 - API key mode: `x-api-key: <tenant key>`
 - JWT mode: `Authorization: Bearer <jwt>` (tenant identity from `tid` or `sub` claim)
 
+**JWT mode request example:**
+
+```bash
+curl -X POST http://localhost:8080/api/v1/analyze \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TP_JWT" \
+  -d '{
+    "symbols": [
+      { "ticker": "AAPL", "name": "Apple Inc." }
+    ],
+    "lookback_hours": 24,
+    "max_articles_per_symbol": 5
+  }'
+```
+
 **Request:**
 
 ```json
