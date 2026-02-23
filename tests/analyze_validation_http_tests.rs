@@ -170,6 +170,8 @@ async fn health_and_metrics_endpoints_are_exposed() {
     let body = metrics.text();
     assert!(body.contains("request_duration_ms"));
     assert!(body.contains("cache_hit_ratio"));
+    assert!(body.contains("cache_hit_memory_total"));
+    assert!(body.contains("cache_hit_redis_total"));
     assert!(body.contains("provider_error_rate"));
     assert!(body.contains("fallback_transition_count"));
     assert!(body.contains("tier_exhaustion_rate"));

@@ -15,7 +15,7 @@ use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
 use moka::future::Cache;
 use std::sync::Arc;
 use std::time::Instant;
-use tracing::info;
+use tracing::{debug, info};
 use uuid::Uuid;
 
 pub mod config;
@@ -246,8 +246,16 @@ pub async fn analyze_handler(
         let mut symbols_to_fetch_news: Vec<(usize, Symbol)> = Vec::new();
 
         for (idx, symbol) in payload.symbols.into_iter().enumerate() {
-            if let Some(cached) = state.cache.get(&symbol.ticker).await {
-                state.metrics.record_cache_hit();
+            let cache_key = normalized_cache_key(&symbol.ticker);
+
+            if let Some(cached) = state.cache.get(&cache_key).await {
+                state.metrics.record_cache_hit_memory();
+                debug!(
+                    "request_id={} cache_hit source=memory symbol={} key={}",
+                    request_id,
+                    symbol.ticker,
+                    cache_key
+                );
                 final_results[idx] = Some(cached);
                 continue;
             }
@@ -256,10 +264,16 @@ pub async fn analyze_handler(
             if let Some(redis_client) = &state.redis_client {
                 if let Ok(mut con) = redis_client.get_multiplexed_tokio_connection().await {
                     use redis::AsyncCommands;
-                    if let Ok(json_res) = con.get::<_, String>(&symbol.ticker).await {
+                    if let Ok(json_res) = con.get::<_, String>(&cache_key).await {
                         if let Ok(cached) = serde_json::from_str::<SentimentResult>(&json_res) {
-                            state.cache.insert(symbol.ticker.clone(), cached.clone()).await;
-                            state.metrics.record_cache_hit();
+                            state.cache.insert(cache_key.clone(), cached.clone()).await;
+                            state.metrics.record_cache_hit_redis();
+                            debug!(
+                                "request_id={} cache_hit source=redis symbol={} key={}",
+                                request_id,
+                                symbol.ticker,
+                                cache_key
+                            );
                             final_results[idx] = Some(cached);
                             redis_cached = true;
                         }
@@ -272,6 +286,12 @@ pub async fn analyze_handler(
             }
 
             state.metrics.record_cache_miss();
+            debug!(
+                "request_id={} cache_miss symbol={} key={}",
+                request_id,
+                symbol.ticker,
+                cache_key
+            );
             symbols_to_fetch_news.push((idx, symbol));
         }
 
@@ -314,7 +334,9 @@ pub async fn analyze_handler(
                                         reasoning: None,
                                     };
 
-                                    state.cache.insert(symbol.ticker.clone(), res.clone()).await;
+                                    let cache_key = normalized_cache_key(&symbol.ticker);
+
+                                    state.cache.insert(cache_key.clone(), res.clone()).await;
                                     if let Some(redis_client) = &state.redis_client {
                                         if let Ok(mut con) =
                                             redis_client.get_multiplexed_tokio_connection().await
@@ -323,7 +345,7 @@ pub async fn analyze_handler(
                                             if let Ok(json_res) = serde_json::to_string(&res) {
                                                 let _: () = con
                                                     .set_ex::<_, _, ()>(
-                                                        &symbol.ticker,
+                                                        &cache_key,
                                                         json_res,
                                                         state.config.cache_ttl_sec,
                                                     )
@@ -386,6 +408,25 @@ pub async fn analyze_handler(
                 Ok(batch_results) => {
                     for res in batch_results {
                         if let Some((orig_idx, _)) = chunk.iter().find(|(_, s)| s.ticker == res.symbol) {
+                            let cache_key = normalized_cache_key(&res.symbol);
+
+                            state.cache.insert(cache_key.clone(), res.clone()).await;
+                            if let Some(redis_client) = &state.redis_client {
+                                if let Ok(mut con) = redis_client.get_multiplexed_tokio_connection().await {
+                                    use redis::AsyncCommands;
+                                    if let Ok(json_res) = serde_json::to_string(&res) {
+                                        let _: () = con
+                                            .set_ex::<_, _, ()>(
+                                                &cache_key,
+                                                json_res,
+                                                state.config.cache_ttl_sec,
+                                            )
+                                            .await
+                                            .unwrap_or(());
+                                    }
+                                }
+                            }
+
                             final_results[*orig_idx] = Some(res);
                         }
                     }
@@ -636,6 +677,10 @@ fn exhaustion_response(request_id: &str) -> (StatusCode, Json<serde_json::Value>
 
 fn combined_text_from_list(list: &[String]) -> String {
     list.join(" ")
+}
+
+fn normalized_cache_key(ticker: &str) -> String {
+    ticker.trim().to_ascii_uppercase()
 }
 
 #[cfg(test)]

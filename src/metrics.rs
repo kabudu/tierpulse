@@ -11,6 +11,8 @@ pub struct MetricsRegistry {
     request_duration_sum_ms: AtomicU64,
     request_durations_ms: Mutex<Vec<u64>>,
 
+    cache_hits_memory: AtomicU64,
+    cache_hits_redis: AtomicU64,
     cache_hits: AtomicU64,
     cache_misses: AtomicU64,
 
@@ -49,6 +51,16 @@ impl MetricsRegistry {
 
     pub fn record_cache_hit(&self) {
         self.cache_hits.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn record_cache_hit_memory(&self) {
+        self.cache_hits_memory.fetch_add(1, Ordering::Relaxed);
+        self.record_cache_hit();
+    }
+
+    pub fn record_cache_hit_redis(&self) {
+        self.cache_hits_redis.fetch_add(1, Ordering::Relaxed);
+        self.record_cache_hit();
     }
 
     pub fn record_cache_miss(&self) {
@@ -91,6 +103,8 @@ impl MetricsRegistry {
     pub fn render_prometheus(&self) -> String {
         let request_count = self.request_count.load(Ordering::Relaxed);
         let request_sum = self.request_duration_sum_ms.load(Ordering::Relaxed);
+        let cache_hits_memory = self.cache_hits_memory.load(Ordering::Relaxed);
+        let cache_hits_redis = self.cache_hits_redis.load(Ordering::Relaxed);
         let cache_hits = self.cache_hits.load(Ordering::Relaxed);
         let cache_misses = self.cache_misses.load(Ordering::Relaxed);
         let tier_exhaustions = self.tier_exhaustions.load(Ordering::Relaxed);
@@ -136,6 +150,14 @@ impl MetricsRegistry {
         );
         out.push_str("# TYPE cache_hit_ratio gauge\\n");
         out.push_str(&format!("cache_hit_ratio {:.6}\\n", cache_hit_ratio));
+
+        out.push_str("# HELP cache_hit_memory_total Total in-memory (Moka) cache hits.\\n");
+        out.push_str("# TYPE cache_hit_memory_total counter\\n");
+        out.push_str(&format!("cache_hit_memory_total {}\\n", cache_hits_memory));
+
+        out.push_str("# HELP cache_hit_redis_total Total Redis cache hits.\\n");
+        out.push_str("# TYPE cache_hit_redis_total counter\\n");
+        out.push_str(&format!("cache_hit_redis_total {}\\n", cache_hits_redis));
 
         out.push_str(
             "# HELP provider_error_rate Provider error ratio by provider and status class.\\n",
