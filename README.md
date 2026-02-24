@@ -161,7 +161,34 @@ If Alpha Vantage appears configured but contributes no articles, use this quick 
 - Check logs for payload-level notices (`Note`, `Information`, `Error Message`), which are treated as non-success and trigger failover.
 - Watch for free-tier quota exhaustion patterns (officially up to 25 requests/day), then rely on downstream fallbacks.
 
-### 2. Run with Docker (Docker Hub)
+### 2. Run with Docker Compose (recommended)
+
+A ready-to-use `docker-compose.yml` is included at the repo root.
+
+1. Set the minimum required credential in `docker-compose.yml`:
+
+- `TP_TIINGO_KEY=REPLACE_WITH_TIINGO_API_KEY` → replace with your real Tiingo key.
+
+2. Start the stack:
+
+```bash
+docker compose up -d
+```
+
+3. Verify startup:
+
+```bash
+curl -s http://localhost:8080/health/live
+curl -s http://localhost:8080/health/ready
+```
+
+4. Stop the stack:
+
+```bash
+docker compose down
+```
+
+### 3. Run with Docker (Docker Hub)
 
 `tierpulse` is published on Docker Hub at `boxedcode/tierpulse`.
 

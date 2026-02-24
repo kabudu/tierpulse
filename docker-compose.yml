@@ -1,0 +1,52 @@
+services:
+  tierpulse:
+    image: boxedcode/tierpulse:latest
+    container_name: tierpulse
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      PORT: "8080"
+      TP_LOG_LEVEL: "INFO"
+      TP_TIINGO_KEY: "REPLACE_WITH_TIINGO_API_KEY"
+
+      # Optional provider keys
+      TP_MARKETAUX_KEY: ""
+      TP_ALPHAVANTAGE_KEY: ""
+      TP_FINNHUB_KEY: ""
+      TP_GROK_KEY: ""
+      TP_DEEPSEEK_KEY: ""
+      TP_PRIMARY_LLM: "grok"
+
+      # Auth defaults
+      TP_AUTH_MODE: "none"
+      TP_AUTH_API_KEYS: ""
+      TP_JWT_SECRET: ""
+      TP_JWT_ISSUER: ""
+
+      # Runtime tuning defaults
+      TP_CACHE_TTL: "300"
+      TP_RATE_LIMIT: "100"
+      TP_GLOBAL_RATE_LIMIT: "1000"
+      TP_PROVIDER_CALL_BUDGET_PER_REQUEST: "6"
+      TP_ONNX_THREADS: "2"
+      TP_MODEL_PATH: "model.onnx"
+
+      # Redis cache (enabled by default via bundled redis service)
+      TP_REDIS_URL: "redis://redis:6379"
+
+      # Optional comma-separated extra hosts
+      TP_EGRESS_ALLOWLIST: ""
+    depends_on:
+      - redis
+
+  redis:
+    image: redis:7-alpine
+    container_name: tierpulse-redis
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    volumes:
+      - redis-data:/data
+
+volumes:
+  redis-data:
