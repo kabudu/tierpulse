@@ -1,29 +1,107 @@
-# tierpulse: High-Scale Financial Sentiment Intelligence Engine
+<p align="center">
+  <img src="docs/assets/tierpulseLogo.png" alt="TierPulse logo" width="360" />
+</p>
 
-[![Pipeline Status](https://github.com/kabudu/tierpulse/actions/workflows/pipeline.yml/badge.svg)](https://github.com/kabudu/tierpulse/actions/workflows/pipeline.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+<h1 align="center">TierPulse</h1>
 
-**tierpulse** is an institutional-grade, high-throughput financial sentiment analysis engine built in **Rust**. It utilizes a three-tier "Intelligence Failover" strategy with **High-Scale Batching** to provide ultra-reliable sentiment analysis for trading bots and financial applications.
+<p align="center">
+  <strong>High-scale financial sentiment intelligence for trading systems, market dashboards, and automation pipelines.</strong>
+</p>
 
-## 🚀 Key Features
+<p align="center">
+  <a href="https://github.com/kabudu/tierpulse/actions/workflows/pipeline.yml"><img src="https://github.com/kabudu/tierpulse/actions/workflows/pipeline.yml/badge.svg" alt="Pipeline status" /></a>
+  <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT" /></a>
+  <a href="https://hub.docker.com/r/boxedcode/tierpulse"><img src="https://img.shields.io/badge/Docker%20Hub-boxedcode%2Ftierpulse-2496ED" alt="Docker Hub" /></a>
+  <img src="https://img.shields.io/badge/Rust-2024%20%7C%201.96-CE412B" alt="Rust 2024, MSRV 1.96" />
+</p>
 
-- **Blazing Fast Inference:** Powered by **Axum** and **ONNX Runtime (`ort`)**
-- **High-Scale Batching:** Requests are automatically batched for both news providers and LLMs (Grok/DeepSeek/OpenAI) to minimize latency and RTT.
-- **Sequential Failover:** Transparently switches between news providers (Tiingo, MarketAux, Alpha Vantage, Finnhub) and configured LLMs (Grok, DeepSeek, OpenAI) to preserve API quotas and ensure availability.
-- **Zero-Bloat Container:** Distroless base image (~85MB) for minimal attack surface and fast startup.
-- **Scalable Caching:** Concurrent **Moka** (In-Memory) and **Redis** (Distributed) caching strategy with multiplexed connections.
-- **Traffic Control:** Token Bucket rate-limiting protects upstream provider quotas.
-- **Resilient Upstream Calls:** Bounded retries with jittered exponential backoff for transient network errors and HTTP 5xx responses (HTTP 429 is not retried).
-- **Intelligence Exhaustion:** Graceful degradation with detailed status reporting when all tiers are unavailable.
+**TierPulse** is a Rust service that turns market news and provider-backed reasoning into low-latency sentiment signals. It is designed for production paths where upstream quota, latency, and partial provider outages are ordinary operating conditions, not surprises.
 
-## 🛠 Tech Stack
+At runtime, TierPulse follows a three-tier intelligence strategy: fetch and batch market news, score available article context locally with an INT8 ONNX model, and escalate to configurable LLM providers only when news intelligence is exhausted or deliberately budget-limited.
 
-- **Server:** Rust 2024 edition (MSRV 1.96), Axum, Tokio, Tower
-- **ML Engine:** ONNX Runtime (Quantized INT8 FinBERT)
-- **Caching:** Moka, Redis
-- **Infra:** Docker (Multi-stage), GitHub Actions, Distroless
+## Key Features
 
-## 📦 Getting Started
+- **Local-first sentiment:** Quantized ONNX FinBERT inference gives fast CPU-friendly results when provider news is available.
+- **Provider failover:** News calls progress across Tiingo, MarketAux, Alpha Vantage, and Finnhub until each symbol is resolved or the request budget is exhausted.
+- **Configurable LLM fallback:** Tier-3 execution order is controlled by `TP_LLM_PROVIDER_ORDER` across Grok, DeepSeek, and OpenAI.
+- **Batch-aware orchestration:** Multi-symbol requests are grouped for provider calls and LLM analysis to reduce round trips.
+- **Cache-efficient operation:** Moka handles in-process hot paths while Redis provides distributed cache reuse across containers.
+- **Production guardrails:** Tenant and global rate limits, strict request validation, egress allowlisting, secret redaction, and typed error envelopes are built in.
+- **Operational visibility:** Health probes expose tier/provider readiness, while Prometheus-style metrics report latency, cache hit rate, provider errors, fallback transitions, and exhaustion.
+- **Release discipline:** Tags are guarded against `Cargo.toml` and `CHANGELOG.md`; Docker semver tags and GitHub Releases are produced by CI.
+
+## Architecture
+
+```mermaid
+%%{init: {"theme": "base", "themeVariables": {"background": "#0b1020", "primaryColor": "#13213d", "primaryTextColor": "#f8fafc", "primaryBorderColor": "#38bdf8", "lineColor": "#7dd3fc", "secondaryColor": "#1f2937", "tertiaryColor": "#111827", "fontFamily": "Inter, ui-sans-serif, system-ui, sans-serif"}}}%%
+flowchart LR
+    client["Trading bots<br/>dashboards<br/>automation"] --> edge["HTTP API<br/>POST /api/v1/analyze"]
+    edge --> auth["Auth, validation<br/>tenant and global limits"]
+    auth --> cache{"Cache hit?"}
+
+    cache -- "yes" --> response["Sentiment response<br/>score, label, confidence<br/>source tier, reasoning"]
+    cache -- "no" --> orchestrator["TierPulse orchestration<br/>symbol batching<br/>request budget<br/>fallback tracking"]
+
+    orchestrator --> news["Tier 2 news fanout"]
+    news --> tiingo["Tiingo"]
+    news --> marketaux["MarketAux"]
+    news --> alphavantage["Alpha Vantage"]
+    news --> finnhub["Finnhub"]
+
+    tiingo --> articles["Normalized article set"]
+    marketaux --> articles
+    alphavantage --> articles
+    finnhub --> articles
+
+    articles --> onnx["Tier 1 local ONNX<br/>INT8 FinBERT<br/>model_labels.json"]
+    onnx --> cache_store["Moka + Redis<br/>result cache"]
+    cache_store --> response
+
+    orchestrator -- "news unavailable<br/>or budget exhausted" --> llm["Tier 3 LLM fallback<br/>configured execution order"]
+    llm --> grok["Grok / xAI"]
+    llm --> deepseek["DeepSeek"]
+    llm --> openai["OpenAI"]
+    grok --> contract["Strict JSON contract<br/>label normalization"]
+    deepseek --> contract
+    openai --> contract
+    contract --> cache_store
+
+    health["/health/live<br/>/health/ready"] -.-> orchestrator
+    metrics["/metrics<br/>latency, cache, provider errors<br/>fallback transitions"] -.-> orchestrator
+    security["Secret redaction<br/>HTTPS egress allowlist<br/>bounded retries"] -.-> news
+    security -.-> llm
+
+    ci["GitHub Actions"] --> tests["fmt, clippy, tests<br/>contract tests, cargo audit"]
+    tests --> image["Multi-arch Docker image<br/>boxedcode/tierpulse"]
+    tests --> release["GitHub Release<br/>CHANGELOG section"]
+
+    classDef user fill:#172554,stroke:#60a5fa,color:#eff6ff;
+    classDef core fill:#0f766e,stroke:#5eead4,color:#ecfeff;
+    classDef cacheLayer fill:#713f12,stroke:#facc15,color:#fffbeb;
+    classDef provider fill:#581c87,stroke:#c084fc,color:#faf5ff;
+    classDef ops fill:#164e63,stroke:#67e8f9,color:#ecfeff;
+    classDef cicd fill:#7f1d1d,stroke:#fca5a5,color:#fff1f2;
+
+    class client,edge user;
+    class auth,orchestrator,onnx,response core;
+    class cache,cache_store cacheLayer;
+    class news,tiingo,marketaux,alphavantage,finnhub,llm,grok,deepseek,openai,contract provider;
+    class health,metrics,security ops;
+    class ci,tests,image,release cicd;
+```
+
+## Tech Stack
+
+| Layer | Technology |
+| :---- | :--------- |
+| Runtime | Rust 2024 edition, MSRV 1.96, Tokio, Axum, Tower |
+| Sentiment model | ONNX Runtime via `ort`, INT8 FinBERT by default |
+| Caching | Moka in-memory cache, Redis distributed cache |
+| Providers | Tiingo, MarketAux, Alpha Vantage, Finnhub, Grok, DeepSeek, OpenAI |
+| Packaging | Multi-stage Docker build, distroless runtime image |
+| CI/CD | GitHub Actions, Docker Buildx, Docker Hub, GitHub Releases |
+
+## Getting Started
 
 ### 1. Environment Configuration
 
@@ -41,9 +119,9 @@ Create a `.env` file or set environment variables. All variables prefixed with `
 | `TP_OPENAI_KEY`                       | `null`       | OpenAI API key for Tier-3 LLM fallback.                                                                          |
 | `TP_PRIMARY_LLM`                      | `grok`       | Backward-compatible hint for the first LLM provider when `TP_LLM_PROVIDER_ORDER` is unset.                       |
 | `TP_LLM_PROVIDER_ORDER`               | derived      | Comma-separated Tier-3 execution order using `grok`, `deepseek`, and/or `openai`.                               |
-| `TP_GROK_MODEL`                       | `grok-4.3` | xAI chat-completions model used by the `grok` provider.                                                         |
-| `TP_DEEPSEEK_MODEL`                   | `deepseek-v4-pro` | DeepSeek chat-completions model used by the `deepseek` provider.                                           |
-| `TP_OPENAI_MODEL`                     | `gpt-5.4-nano` | OpenAI chat-completions model used by the `openai` provider.                                                |
+| `TP_GROK_MODEL`                       | `grok-4.3`        | xAI chat-completions model used by the `grok` provider.                                                         |
+| `TP_DEEPSEEK_MODEL`                   | `deepseek-v4-pro` | DeepSeek chat-completions model used by the `deepseek` provider.                                                |
+| `TP_OPENAI_MODEL`                     | `gpt-5.4-nano`    | OpenAI chat-completions model used by the `openai` provider.                                                    |
 | `TP_REDIS_URL`                        | `null`       | Redis URL for distributed caching (e.g., `redis://localhost:6379`).                                              |
 | `TP_CACHE_TTL`                        | `300`        | In-memory/Redis cache expiration in seconds.                                                                     |
 | `TP_AUTH_MODE`                        | `none`       | Authentication mode: `none`, `api_key`, or `jwt`.                                                                |
@@ -250,7 +328,7 @@ docker pull boxedcode/tierpulse@sha256:<digest>
 
 **Architecture note:** the published image is multi-arch (`linux/amd64`, `linux/arm64`), so Docker automatically pulls the correct variant for your host.
 
-## 📊 API Contract
+## API Contract
 
 ### `POST /api/v1/analyze`
 
@@ -406,7 +484,7 @@ curl -X POST http://localhost:8080/api/v1/analyze \
 }
 ```
 
-## 🏗 CI/CD Architecture
+## CI/CD Architecture
 
 The system utilizes a multi-stage pipeline:
 
@@ -430,10 +508,10 @@ Release tags must pass `scripts/verify_release_version.sh`, which requires the G
 - **Versioned OpenAPI contract:** `openapi/openapi.v1.yaml` is the source-of-truth versioned API contract for public endpoints.
 - **Contract enforcement path:** `tests/openapi_contract_tests.rs` validates core OpenAPI invariants (version, required paths, response envelope refs, and `ErrorEnvelope` required fields) and is executed by the dedicated CI `contract-test` job.
 
-## 🤝 Contributing
+## Contributing
 
 We welcome contributions of all kinds! Please see our [Contributing Guide](CONTRIBUTORS.md) for details on how to get started, our code of conduct, and our pull request process.
 
-## 📄 License
+## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
