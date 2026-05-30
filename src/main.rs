@@ -37,7 +37,11 @@ async fn main() -> anyhow::Result<()> {
 
     tracing::subscriber::set_global_default(subscriber)?;
 
-    info!("Initializing tierpulse v0.1.0 on port {}", config.port);
+    info!(
+        "Initializing tierpulse v{} on port {}",
+        env!("CARGO_PKG_VERSION"),
+        config.port
+    );
 
     // 3. Initialize High-Performance Core
     let engine = InferenceEngine::new(&config)?;
