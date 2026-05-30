@@ -1,17 +1,19 @@
+#![allow(clippy::collapsible_if)]
+
 use axum::{
+    Extension, Json, Router,
     http::{
-        header::{HeaderName, AUTHORIZATION, CONTENT_TYPE},
         HeaderMap, StatusCode,
+        header::{AUTHORIZATION, CONTENT_TYPE, HeaderName},
     },
     response::{IntoResponse, Response},
     routing::{get, post},
-    Extension, Json, Router,
 };
 use governor::{
-    state::{keyed::DefaultKeyedStateStore, InMemoryState, NotKeyed},
     RateLimiter,
+    state::{InMemoryState, NotKeyed, keyed::DefaultKeyedStateStore},
 };
-use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
+use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode};
 use moka::future::Cache;
 use std::sync::Arc;
 use std::time::Instant;
@@ -99,12 +101,19 @@ pub async fn readiness_handler(Extension(state): Extension<Arc<AppState>>) -> im
     }
 
     let marketaux_configured = state.config.marketaux_key.is_some();
+    let alphavantage_configured = state.config.alphavantage_key.is_some();
     let finnhub_configured = state.config.finnhub_key.is_some();
-    let llm_configured = state.config.grok_key.is_some() || state.config.deepseek_key.is_some();
+    let llm_configured = state.config.grok_key.is_some()
+        || state.config.deepseek_key.is_some()
+        || state.config.openai_key.is_some();
 
     let tier_1_status = "operational";
 
-    let tier_2_status = if tiingo_available || marketaux_configured || finnhub_configured {
+    let tier_2_status = if tiingo_available
+        || marketaux_configured
+        || alphavantage_configured
+        || finnhub_configured
+    {
         "operational"
     } else {
         "degraded"
@@ -112,7 +121,7 @@ pub async fn readiness_handler(Extension(state): Extension<Arc<AppState>>) -> im
 
     let tier_2_reason = if tiingo_available {
         serde_json::Value::Null
-    } else if marketaux_configured || finnhub_configured {
+    } else if marketaux_configured || alphavantage_configured || finnhub_configured {
         serde_json::json!("primary_news_provider_unavailable_using_fallback_capacity")
     } else {
         serde_json::json!("no_news_provider_available")
@@ -160,6 +169,10 @@ pub async fn readiness_handler(Extension(state): Extension<Arc<AppState>>) -> im
                         "status": if marketaux_configured { "configured" } else { "not_configured" },
                         "breaker_state": "not_configured"
                     },
+                    "alphavantage": {
+                        "status": if alphavantage_configured { "configured" } else { "not_configured" },
+                        "breaker_state": "not_configured"
+                    },
                     "finnhub": {
                         "status": if finnhub_configured { "configured" } else { "not_configured" },
                         "breaker_state": "not_configured"
@@ -178,8 +191,13 @@ pub async fn readiness_handler(Extension(state): Extension<Arc<AppState>>) -> im
                     "deepseek": {
                         "status": if state.config.deepseek_key.is_some() { "configured" } else { "not_configured" },
                         "breaker_state": "not_configured"
+                    },
+                    "openai": {
+                        "status": if state.config.openai_key.is_some() { "configured" } else { "not_configured" },
+                        "breaker_state": "not_configured"
                     }
-                }
+                },
+                "execution_order": state.config.llm_provider_order.clone()
             }
         }
     });
@@ -262,7 +280,7 @@ pub async fn analyze_handler(
 
             let mut redis_cached = false;
             if let Some(redis_client) = &state.redis_client {
-                if let Ok(mut con) = redis_client.get_multiplexed_tokio_connection().await {
+                if let Ok(mut con) = redis_client.get_multiplexed_async_connection().await {
                     use redis::AsyncCommands;
                     if let Ok(json_res) = con.get::<_, String>(&cache_key).await {
                         if let Ok(cached) = serde_json::from_str::<SentimentResult>(&json_res) {
@@ -339,7 +357,7 @@ pub async fn analyze_handler(
                                     state.cache.insert(cache_key.clone(), res.clone()).await;
                                     if let Some(redis_client) = &state.redis_client {
                                         if let Ok(mut con) =
-                                            redis_client.get_multiplexed_tokio_connection().await
+                                            redis_client.get_multiplexed_async_connection().await
                                         {
                                             use redis::AsyncCommands;
                                             if let Ok(json_res) = serde_json::to_string(&res) {
@@ -361,7 +379,9 @@ pub async fn analyze_handler(
                         }
 
                         if can_escalate_to_llm
-                            && (state.config.grok_key.is_some() || state.config.deepseek_key.is_some())
+                            && (state.config.grok_key.is_some()
+                                || state.config.deepseek_key.is_some()
+                                || state.config.openai_key.is_some())
                         {
                             state
                                 .metrics
@@ -412,7 +432,9 @@ pub async fn analyze_handler(
 
                             state.cache.insert(cache_key.clone(), res.clone()).await;
                             if let Some(redis_client) = &state.redis_client {
-                                if let Ok(mut con) = redis_client.get_multiplexed_tokio_connection().await {
+                                if let Ok(mut con) =
+                                    redis_client.get_multiplexed_async_connection().await
+                                {
                                     use redis::AsyncCommands;
                                     if let Ok(json_res) = serde_json::to_string(&res) {
                                         let _: () = con
@@ -687,9 +709,9 @@ fn normalized_cache_key(ticker: &str) -> String {
 mod tests {
     use super::*;
     use axum::http::HeaderValue;
-    use governor::state::keyed::DefaultKeyedStateStore;
     use governor::Quota;
-    use jsonwebtoken::{encode, EncodingKey, Header};
+    use governor::state::keyed::DefaultKeyedStateStore;
+    use jsonwebtoken::{EncodingKey, Header, encode};
     use serde::Serialize;
     use std::num::NonZeroU32;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -704,7 +726,16 @@ mod tests {
             alphavantage_key: None,
             grok_key: None,
             deepseek_key: None,
+            openai_key: None,
             primary_llm: "grok".to_string(),
+            llm_provider_order: vec![
+                "grok".to_string(),
+                "deepseek".to_string(),
+                "openai".to_string(),
+            ],
+            grok_model: "grok-4.3".to_string(),
+            deepseek_model: "deepseek-v4-pro".to_string(),
+            openai_model: "gpt-5.4-nano".to_string(),
             redis_url: None,
             cache_ttl_sec: 300,
             rate_limit_per_min: 1,

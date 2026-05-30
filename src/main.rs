@@ -3,13 +3,13 @@ use governor::{Quota, RateLimiter};
 use moka::future::Cache;
 use std::sync::Arc;
 use tokio::net::TcpListener;
-use tracing::{info, Level};
+use tracing::{Level, info};
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
 use tierpulse::config::Config;
 use tierpulse::inference::InferenceEngine;
 use tierpulse::metrics::MetricsRegistry;
-use tierpulse::{app, AppState};
+use tierpulse::{AppState, app};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {

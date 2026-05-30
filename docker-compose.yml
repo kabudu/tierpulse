@@ -3,40 +3,47 @@ services:
     image: boxedcode/tierpulse:latest
     container_name: tierpulse
     restart: unless-stopped
+    env_file:
+      - .env
     ports:
       - "8080:8080"
     environment:
-      PORT: "8080"
-      TP_LOG_LEVEL: "INFO"
-      TP_TIINGO_KEY: "REPLACE_WITH_TIINGO_API_KEY"
+      PORT: "${PORT:-8080}"
+      TP_LOG_LEVEL: "${TP_LOG_LEVEL:-INFO}"
+      TP_TIINGO_KEY: "${TP_TIINGO_KEY:?Set TP_TIINGO_KEY in .env}"
 
       # Optional provider keys
-      TP_MARKETAUX_KEY: ""
-      TP_ALPHAVANTAGE_KEY: ""
-      TP_FINNHUB_KEY: ""
-      TP_GROK_KEY: ""
-      TP_DEEPSEEK_KEY: ""
-      TP_PRIMARY_LLM: "grok"
+      TP_MARKETAUX_KEY: "${TP_MARKETAUX_KEY:-}"
+      TP_ALPHAVANTAGE_KEY: "${TP_ALPHAVANTAGE_KEY:-}"
+      TP_FINNHUB_KEY: "${TP_FINNHUB_KEY:-}"
+      TP_GROK_KEY: "${TP_GROK_KEY:-}"
+      TP_DEEPSEEK_KEY: "${TP_DEEPSEEK_KEY:-}"
+      TP_OPENAI_KEY: "${TP_OPENAI_KEY:-}"
+      TP_PRIMARY_LLM: "${TP_PRIMARY_LLM:-grok}"
+      TP_LLM_PROVIDER_ORDER: "${TP_LLM_PROVIDER_ORDER:-grok,deepseek,openai}"
+      TP_GROK_MODEL: "${TP_GROK_MODEL:-grok-4.3}"
+      TP_DEEPSEEK_MODEL: "${TP_DEEPSEEK_MODEL:-deepseek-v4-pro}"
+      TP_OPENAI_MODEL: "${TP_OPENAI_MODEL:-gpt-5.4-nano}"
 
       # Auth defaults
-      TP_AUTH_MODE: "none"
-      TP_AUTH_API_KEYS: ""
-      TP_JWT_SECRET: ""
-      TP_JWT_ISSUER: ""
+      TP_AUTH_MODE: "${TP_AUTH_MODE:-none}"
+      TP_AUTH_API_KEYS: "${TP_AUTH_API_KEYS:-}"
+      TP_JWT_SECRET: "${TP_JWT_SECRET:-}"
+      TP_JWT_ISSUER: "${TP_JWT_ISSUER:-}"
 
       # Runtime tuning defaults
-      TP_CACHE_TTL: "300"
-      TP_RATE_LIMIT: "100"
-      TP_GLOBAL_RATE_LIMIT: "1000"
-      TP_PROVIDER_CALL_BUDGET_PER_REQUEST: "6"
-      TP_ONNX_THREADS: "2"
-      TP_MODEL_PATH: "model.onnx"
+      TP_CACHE_TTL: "${TP_CACHE_TTL:-300}"
+      TP_RATE_LIMIT: "${TP_RATE_LIMIT:-100}"
+      TP_GLOBAL_RATE_LIMIT: "${TP_GLOBAL_RATE_LIMIT:-1000}"
+      TP_PROVIDER_CALL_BUDGET_PER_REQUEST: "${TP_PROVIDER_CALL_BUDGET_PER_REQUEST:-6}"
+      TP_ONNX_THREADS: "${TP_ONNX_THREADS:-2}"
+      TP_MODEL_PATH: "${TP_MODEL_PATH:-model.onnx}"
 
       # Redis cache (enabled by default via bundled redis service)
-      TP_REDIS_URL: "redis://redis:6379"
+      TP_REDIS_URL: "${TP_REDIS_URL:-redis://redis:6379}"
 
       # Optional comma-separated extra hosts
-      TP_EGRESS_ALLOWLIST: ""
+      TP_EGRESS_ALLOWLIST: "${TP_EGRESS_ALLOWLIST:-}"
     depends_on:
       - redis
 

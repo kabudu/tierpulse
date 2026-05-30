@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.96.0
       - name: Check formatting
         run: cargo fmt --all -- --check
 
@@ -22,7 +22,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.96.0
       - name: Run clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
 
@@ -32,7 +32,7 @@ jobs:
     needs: [fmt, clippy]
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.96.0
       - name: Run tests
         run: cargo test --all-targets --all-features -- --nocapture
 
@@ -42,7 +42,7 @@ jobs:
     needs: [fmt, clippy]
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.96.0
       - name: Run OpenAPI contract tests
         run: cargo test --test openapi_contract_tests -- --nocapture
 
@@ -51,18 +51,30 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.96.0
       - name: Install cargo-audit
         run: cargo install cargo-audit --locked
       - name: Run dependency vulnerability scan
         run: cargo audit
+
+  release-consistency:
+    name: release-consistency
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify tag, Cargo version, and changelog agree
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: bash scripts/verify_release_version.sh "${GITHUB_REF_NAME}"
+      - name: Skip release verification for non-tag builds
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        run: echo "release consistency check only applies to v* tags"
 
   publish:
     name: Push Docker image to Docker Hub
     runs-on: ubuntu-latest
     # Only publish on master push or version tags, and ONLY if all CI jobs pass
     if: github.event_name == 'push' && (github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v'))
-    needs: [test, contract-test, dependency-vuln-scan]
+    needs: [test, contract-test, dependency-vuln-scan, release-consistency]
     steps:
       - name: Check out the repo
         uses: actions/checkout@v4
@@ -100,3 +112,36 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=tierpulse
           cache-to: type=gha,scope=tierpulse,mode=min,ignore-error=true
+
+  github-release:
+    name: Create GitHub release
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: [publish]
+    permissions:
+      contents: write
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@v4
+
+      - name: Verify tag, Cargo version, and changelog agree
+        run: bash scripts/verify_release_version.sh "${GITHUB_REF_NAME}"
+
+      - name: Extract changelog release notes
+        run: bash scripts/extract_changelog_release.sh "${GITHUB_REF_NAME}" > release_notes.md
+
+      - name: Create or update GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            gh release edit "${GITHUB_REF_NAME}" \
+              --title "tierpulse ${GITHUB_REF_NAME#v}" \
+              --notes-file release_notes.md \
+              --verify-tag
+          else
+            gh release create "${GITHUB_REF_NAME}" \
+              --title "tierpulse ${GITHUB_REF_NAME#v}" \
+              --notes-file release_notes.md \
+              --verify-tag
+          fi

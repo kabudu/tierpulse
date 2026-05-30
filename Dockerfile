@@ -2,6 +2,7 @@
 # Optimized: Runs on host (x86_64) but targets the correct architecture quantization
 FROM --platform=$BUILDPLATFORM python:3.11-slim AS model-prep
 ARG TARGETARCH
+ARG MODEL_ID=ProsusAI/finbert
 WORKDIR /app
 RUN pip install --no-cache-dir torch transformers onnx optimum[onnxruntime]
 
@@ -10,13 +11,14 @@ COPY scripts/export_model.py .
 
 # Run the export and quantization
 # We pass --arch to ensure quantization is optimized for the intended target
-RUN python export_model.py --arch $TARGETARCH && \
+RUN python export_model.py --arch $TARGETARCH --model-id "$MODEL_ID" && \
     mv model_onnx/model.onnx /app/model.onnx && \
-    mv model_onnx/tokenizer.json /app/tokenizer.json
+    mv model_onnx/tokenizer.json /app/tokenizer.json && \
+    mv model_onnx/model_labels.json /app/model_labels.json
 
 # Stage 2: Binary Build (Rust)
 # Uses latest slim toolchain image (Debian 13/trixie lineage) for successful ort linking
-FROM --platform=$BUILDPLATFORM rust:1.92-slim AS builder
+FROM --platform=$BUILDPLATFORM rust:1.96-slim AS builder
 ARG TARGETARCH
 ARG BUILDARCH
 WORKDIR /app
@@ -118,6 +120,7 @@ COPY --from=builder /app/tierpulse /app/tierpulse
 COPY --from=builder /app/libonnxruntime.so* /usr/lib/
 COPY --from=model-prep /app/model.onnx /app/model.onnx
 COPY --from=model-prep /app/tokenizer.json /app/tokenizer.json
+COPY --from=model-prep /app/model_labels.json /app/model_labels.json
 
 # Environment variables
 ENV TP_LOG_LEVEL=INFO

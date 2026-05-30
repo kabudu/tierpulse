@@ -8,8 +8,8 @@
 ## 🚀 Key Features
 
 - **Blazing Fast Inference:** Powered by **Axum** and **ONNX Runtime (`ort`)**
-- **High-Scale Batching:** Requests are automatically batched for both news providers and LLMs (Grok/DeepSeek) to minimize latency and RTT.
-- **Sequential Failover:** Transparently switches between news providers (Tiingo, MarketAux, Finnhub) and LLMs (Grok, DeepSeek) to preserve API quotas and ensure availability.
+- **High-Scale Batching:** Requests are automatically batched for both news providers and LLMs (Grok/DeepSeek/OpenAI) to minimize latency and RTT.
+- **Sequential Failover:** Transparently switches between news providers (Tiingo, MarketAux, Alpha Vantage, Finnhub) and configured LLMs (Grok, DeepSeek, OpenAI) to preserve API quotas and ensure availability.
 - **Zero-Bloat Container:** Distroless base image (~85MB) for minimal attack surface and fast startup.
 - **Scalable Caching:** Concurrent **Moka** (In-Memory) and **Redis** (Distributed) caching strategy with multiplexed connections.
 - **Traffic Control:** Token Bucket rate-limiting protects upstream provider quotas.
@@ -18,7 +18,7 @@
 
 ## 🛠 Tech Stack
 
-- **Server:** Rust, Axum, Tokio, Tower
+- **Server:** Rust 2024 edition (MSRV 1.96), Axum, Tokio, Tower
 - **ML Engine:** ONNX Runtime (Quantized INT8 FinBERT)
 - **Caching:** Moka, Redis
 - **Infra:** Docker (Multi-stage), GitHub Actions, Distroless
@@ -36,9 +36,14 @@ Create a `.env` file or set environment variables. All variables prefixed with `
 | `TP_FINNHUB_KEY`                      | `null`       | Tertiary news provider key (final fallback tier).                                                                |
 | `TP_MARKETAUX_KEY`                    | `null`       | Secondary news provider key (batched fallback tier).                                                             |
 | `TP_ALPHAVANTAGE_KEY`                 | `null`       | Additional batched fallback news provider key via Alpha Vantage `NEWS_SENTIMENT`.                                |
-| `TP_GROK_KEY`                         | `null`       | xAI API key (utilizes `grok-4-1-fast-reasoning`).                                                                |
-| `TP_DEEPSEEK_KEY`                     | `null`       | DeepSeek API key (utilizes `deepseek-chat`).                                                                     |
-| `TP_PRIMARY_LLM`                      | `grok`       | Primary LLM engine (`grok` or `deepseek`).                                                                       |
+| `TP_GROK_KEY`                         | `null`       | xAI API key for Tier-3 LLM fallback.                                                                             |
+| `TP_DEEPSEEK_KEY`                     | `null`       | DeepSeek API key for Tier-3 LLM fallback.                                                                        |
+| `TP_OPENAI_KEY`                       | `null`       | OpenAI API key for Tier-3 LLM fallback.                                                                          |
+| `TP_PRIMARY_LLM`                      | `grok`       | Backward-compatible hint for the first LLM provider when `TP_LLM_PROVIDER_ORDER` is unset.                       |
+| `TP_LLM_PROVIDER_ORDER`               | derived      | Comma-separated Tier-3 execution order using `grok`, `deepseek`, and/or `openai`.                               |
+| `TP_GROK_MODEL`                       | `grok-4.3` | xAI chat-completions model used by the `grok` provider.                                                         |
+| `TP_DEEPSEEK_MODEL`                   | `deepseek-v4-pro` | DeepSeek chat-completions model used by the `deepseek` provider.                                           |
+| `TP_OPENAI_MODEL`                     | `gpt-5.4-nano` | OpenAI chat-completions model used by the `openai` provider.                                                |
 | `TP_REDIS_URL`                        | `null`       | Redis URL for distributed caching (e.g., `redis://localhost:6379`).                                              |
 | `TP_CACHE_TTL`                        | `300`        | In-memory/Redis cache expiration in seconds.                                                                     |
 | `TP_AUTH_MODE`                        | `none`       | Authentication mode: `none`, `api_key`, or `jwt`.                                                                |
@@ -53,6 +58,10 @@ Create a `.env` file or set environment variables. All variables prefixed with `
 | `TP_MODEL_PATH`                       | `model.onnx` | Path to the INT8 quantized ONNX model.                                                                           |
 | `TP_LOG_LEVEL`                        | `INFO`       | Logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`).                                                             |
 | `TP_ORT_LOG_LEVEL`                    | `warn`       | Log level override for ONNX Runtime internals (`ort::logging`) to control allocator/session log noise.           |
+
+Docker builds export `ProsusAI/finbert` to INT8 ONNX by default. To build with another compatible Hugging Face text-classification model, pass `--build-arg MODEL_ID=<owner/model>`; the export step also writes `model_labels.json` so runtime sentiment labels follow the selected model's `id2label` mapping.
+
+When `TP_LLM_PROVIDER_ORDER` is unset, tierpulse starts with `TP_PRIMARY_LLM` and then appends the remaining supported providers in the default sequence `grok,deepseek,openai`.
 
 ### Authentication Recommendation: API Key vs JWT
 
@@ -74,7 +83,7 @@ When auth is enabled, tenant identity is extracted at request time and enforced 
 - **Fallback behavior:** Providers that only support query tokens remain supported, with token values redacted from dynamic log output.
 - **Retry policy:** Outbound provider/LLM calls use bounded jittered exponential backoff retries for HTTP 5xx and transient network errors; HTTP 429 is intentionally not retried to preserve quota-pooling behavior.
 - **Strict LLM escalation guard:** Tier-3 LLM fallback is only allowed after news sources were fully attempted in order (`Tiingo -> MarketAux -> Alpha Vantage -> Finnhub`) or when `TP_PROVIDER_CALL_BUDGET_PER_REQUEST` is exhausted.
-- **Outbound egress allowlist (Layer 1):** Application-level outbound URL enforcement only allows HTTPS traffic to approved provider domains (`api.tiingo.com`, `finnhub.io`, `api.marketaux.com`, `www.alphavantage.co`, `api.x.ai`, `api.deepseek.com`).
+- **Outbound egress allowlist (Layer 1):** Application-level outbound URL enforcement only allows HTTPS traffic to approved provider domains (`api.tiingo.com`, `finnhub.io`, `api.marketaux.com`, `www.alphavantage.co`, `api.x.ai`, `api.deepseek.com`, `api.openai.com`).
 - **Config-driven egress override:** `TP_EGRESS_ALLOWLIST` can extend the allowed host set (for controlled environment-specific endpoints) without code changes.
 
 ### Operational Endpoints (Observability + Health)
@@ -110,6 +119,10 @@ Readiness response shape (example):
           "status": "configured",
           "breaker_state": "not_configured"
         },
+        "alphavantage": {
+          "status": "not_configured",
+          "breaker_state": "not_configured"
+        },
         "finnhub": {
           "status": "not_configured",
           "breaker_state": "not_configured"
@@ -128,8 +141,13 @@ Readiness response shape (example):
         "deepseek": {
           "status": "not_configured",
           "breaker_state": "not_configured"
+        },
+        "openai": {
+          "status": "not_configured",
+          "breaker_state": "not_configured"
         }
-      }
+      },
+      "execution_order": ["grok", "deepseek", "openai"]
     }
   }
 }
@@ -141,16 +159,20 @@ Provider auth transport summary (verified against provider docs):
 - **Finnhub:** Supports both query `token` and `X-Finnhub-Token: <api_key>` header for GET requests.
 - **MarketAux:** Documentation uses `api_token` as a query parameter for REST requests.
 - **Alpha Vantage (`NEWS_SENTIMENT`):** Uses query-parameter API key authentication (`apikey=<key>`).
+- **xAI/Grok:** Uses bearer-token authentication against `https://api.x.ai/v1/chat/completions` with JSON output requested through `response_format`.
+- **DeepSeek:** Uses bearer-token authentication against the current `https://api.deepseek.com/chat/completions` endpoint with JSON output requested through `response_format`.
+- **OpenAI:** Uses bearer-token authentication against `https://api.openai.com/v1/chat/completions` with JSON output requested through `response_format`.
 
 ### LLM `400` Troubleshooting
 
-If logs include `LLM request failed: 400 ...`, use this quick checklist:
+If logs include `LLM provider failed ... status=400`, use this quick checklist:
 
-- Confirm `TP_PRIMARY_LLM` matches a configured key (`TP_GROK_KEY` or `TP_DEEPSEEK_KEY`).
+- Confirm `TP_LLM_PROVIDER_ORDER` contains at least one provider with a configured key (`TP_GROK_KEY`, `TP_DEEPSEEK_KEY`, or `TP_OPENAI_KEY`).
 - Validate provider key scope/quota and that the key is active (not expired/revoked).
 - Inspect the logged response body preview for provider-specific validation errors.
-- Verify outbound egress allows the selected endpoint (`api.x.ai` or `api.deepseek.com`).
-- If needed, switch `TP_PRIMARY_LLM` to the alternate provider to verify failover behavior.
+- Verify outbound egress allows the selected endpoint (`api.x.ai`, `api.deepseek.com`, or `api.openai.com`).
+- Ensure the selected model supports chat completions and JSON-object output. tierpulse asks providers for `{ "results": [...] }` and falls back to the next provider when that contract is rejected or malformed.
+- Reorder `TP_LLM_PROVIDER_ORDER` to test a different primary provider without disabling fallback.
 
 ### Alpha Vantage Troubleshooting
 
@@ -163,26 +185,30 @@ If Alpha Vantage appears configured but contributes no articles, use this quick 
 
 ### 2. Run with Docker Compose (recommended)
 
-A ready-to-use `docker-compose.yml` is included at the repo root.
+A ready-to-use `docker-compose.yml` is included at the repo root and reads local development secrets from `.env`.
 
-1. Set the minimum required credential in `docker-compose.yml`:
+1. Create a local `.env` from the tracked template:
 
-- `TP_TIINGO_KEY=REPLACE_WITH_TIINGO_API_KEY` → replace with your real Tiingo key.
+```bash
+cp .env.example .env
+```
 
-2. Start the stack:
+2. Set at least `TP_TIINGO_KEY` in `.env`. Add any fallback keys you want to exercise, such as `TP_GROK_KEY`, `TP_DEEPSEEK_KEY`, and `TP_OPENAI_KEY`.
+
+3. Start the stack:
 
 ```bash
 docker compose up -d
 ```
 
-3. Verify startup:
+4. Verify startup:
 
 ```bash
 curl -s http://localhost:8080/health/live
 curl -s http://localhost:8080/health/ready
 ```
 
-4. Stop the stack:
+5. Stop the stack:
 
 ```bash
 docker compose down
@@ -387,6 +413,14 @@ The system utilizes a multi-stage pipeline:
 1. **Model Prep:** Python prunes/quantizes `finbert` to INT8 ONNX.
 2. **Build:** Rust compiles the binary using a stripped release profile.
 3. **Deploy:** GitHub Actions pushes the final image to Docker Hub with automatic Semantic Versioning.
+4. **Release:** Tag builds create or update the matching GitHub Release from the corresponding `CHANGELOG.md` section.
+
+Docker Hub tags are derived from the Git ref by `docker/metadata-action`, not from `Cargo.toml` alone:
+
+- Pushing tag `v1.2.1` publishes `boxedcode/tierpulse:1.2.1`, `boxedcode/tierpulse:1.2`, and `boxedcode/tierpulse:1`.
+- Pushing to `master` publishes `boxedcode/tierpulse:latest`.
+
+Release tags must pass `scripts/verify_release_version.sh`, which requires the Git tag, `Cargo.toml` `package.version`, and a Keep a Changelog section such as `## [1.2.1]` or `## [1.2.1] - 2026-05-30` to agree before Docker publishing runs. After Docker publishing succeeds, `scripts/extract_changelog_release.sh` extracts that release section and the workflow publishes it as the GitHub Release notes.
 
 ### Quality Gates & Contract Enforcement
 

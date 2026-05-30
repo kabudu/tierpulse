@@ -488,10 +488,7 @@ pub async fn fetch_batch_news(
                                 info!(
                                     "request_id={} News provider payload notice: provider=alphavantage note={} information={} error_message={}",
                                     request_id,
-                                    payload
-                                        .get("Note")
-                                        .and_then(|v| v.as_str())
-                                        .unwrap_or(""),
+                                    payload.get("Note").and_then(|v| v.as_str()).unwrap_or(""),
                                     payload
                                         .get("Information")
                                         .and_then(|v| v.as_str())
@@ -750,23 +747,6 @@ pub async fn fetch_llm_batch_sentiment(
         return Ok(vec![]);
     }
 
-    let (api_key, api_url, model) = if config.primary_llm == "grok" {
-        (
-            config.grok_key.as_ref().context("Grok key missing")?,
-            "https://api.x.ai/v1/chat/completions",
-            "grok-4-1-fast-reasoning",
-        )
-    } else {
-        (
-            config
-                .deepseek_key
-                .as_ref()
-                .context("DeepSeek key missing")?,
-            "https://api.deepseek.com/v1/chat/completions",
-            "deepseek-chat",
-        )
-    };
-
     let symbols_desc = symbols
         .iter()
         .map(|s| format!("{} ({})", s.name, s.ticker))
@@ -775,77 +755,161 @@ pub async fn fetch_llm_batch_sentiment(
 
     let prompt = format!(
         "Analyze market sentiment for the following symbols: {}. \
-        Respond ONLY with a JSON array where each object represents a symbol and has precisely these fields: \
-        {{ \"symbol\": \"ticker\", \"sentiment_score\": float (-1.0 to 1.0), \"confidence\": float (0.0 to 1.0), \"reasoning\": \"max 20 words\", \"label\": \"String\" }}. \
-        Include every requested symbol in the output array.",
+        Respond ONLY with a JSON object containing a \"results\" array. Each item must represent one symbol and have precisely these fields: \
+        {{ \"symbol\": \"ticker\", \"sentiment_score\": float (-1.0 to 1.0), \"confidence\": float (0.0 to 1.0), \"reasoning\": \"max 20 words\", \"label\": \"bullish|bearish|neutral\" }}. \
+        Include every requested symbol in the results array.",
         symbols_desc
     );
 
-    egress::enforce_allowed_url(api_url, config)?;
+    let mut attempted = 0usize;
+    let mut failures = Vec::new();
 
-    let provider_name = if config.primary_llm == "grok" {
-        "grok"
-    } else {
-        "deepseek"
-    };
+    for provider_name in &config.llm_provider_order {
+        let Some((api_key, api_url, model)) = llm_provider_config(provider_name, config) else {
+            info!(
+                "request_id={} LLM provider skipped: provider={} reason=missing_api_key",
+                request_id, provider_name
+            );
+            continue;
+        };
 
-    info!(
-        "request_id={} LLM batch start: provider={} symbols={}",
-        request_id,
-        provider_name,
-        symbols.len()
-    );
+        attempted += 1;
 
-    let res = send_with_retry(provider_name, metrics, || {
-        client
-            .post(api_url)
-            .header("Authorization", format!("Bearer {}", api_key))
-            .json(&serde_json::json!({
-                "model": model,
-                "messages": [
-                    { "role": "system", "content": "You are a financial sentiment analyst tasked with high-throughput batch evaluation. Respond only in strict JSON array format." },
-                    { "role": "user", "content": prompt }
-                ]
-            }))
-    })
-    .await?;
+        if let Err(error) = egress::enforce_allowed_url(api_url, config) {
+            failures.push(format!("{} egress denied: {}", provider_name, error));
+            continue;
+        }
 
-    if !res.status().is_success() {
-        let status = res.status();
-        let body = res.text().await.unwrap_or_default();
-        let body_preview: String = body.chars().take(512).collect();
-        return Err(anyhow::anyhow!(
-            "LLM request failed: {} body={}",
-            status,
-            body_preview
-        ));
+        info!(
+            "request_id={} LLM batch start: provider={} symbols={}",
+            request_id,
+            provider_name,
+            symbols.len()
+        );
+
+        let res = match send_with_retry(provider_name, metrics, || {
+            client
+                .post(api_url)
+                .header("Authorization", format!("Bearer {}", api_key))
+                .json(&serde_json::json!({
+                    "model": model,
+                    "messages": [
+                        { "role": "system", "content": "You are a financial sentiment analyst tasked with high-throughput batch evaluation. Respond only with a strict JSON object containing a results array." },
+                        { "role": "user", "content": prompt }
+                    ],
+                    "response_format": { "type": "json_object" },
+                    "stream": false
+                }))
+        })
+        .await
+        {
+            Ok(res) => res,
+            Err(error) => {
+                failures.push(format!("{} request error: {}", provider_name, error));
+                info!(
+                    "request_id={} LLM provider failed: provider={} error={}",
+                    request_id, provider_name, error
+                );
+                continue;
+            }
+        };
+
+        if !res.status().is_success() {
+            let status = res.status();
+            let body = res.text().await.unwrap_or_default();
+            let body_preview: String = body.chars().take(512).collect();
+            failures.push(format!(
+                "{} non-success status: {} body={}",
+                provider_name, status, body_preview
+            ));
+            info!(
+                "request_id={} LLM provider failed: provider={} status={}",
+                request_id, provider_name, status
+            );
+            continue;
+        }
+
+        let parsed = async {
+            let json: serde_json::Value = res.json().await?;
+            let content = json["choices"][0]["message"]["content"]
+                .as_str()
+                .context("Invalid LLM response structure")?;
+            parse_llm_content_to_results(content)
+        }
+        .await;
+
+        match parsed {
+            Ok(results) => {
+                info!(
+                    "request_id={} LLM batch complete: provider={} symbols={}",
+                    request_id,
+                    provider_name,
+                    symbols.len()
+                );
+                return Ok(results);
+            }
+            Err(error) => {
+                failures.push(format!("{} response parse error: {}", provider_name, error));
+                info!(
+                    "request_id={} LLM provider failed: provider={} error={}",
+                    request_id, provider_name, error
+                );
+            }
+        }
     }
 
-    let json: serde_json::Value = res.json().await?;
-    let content = json["choices"][0]["message"]["content"]
-        .as_str()
-        .context("Invalid LLM response structure")?;
+    if attempted == 0 {
+        anyhow::bail!(
+            "No configured LLM providers available in TP_LLM_PROVIDER_ORDER={}",
+            config.llm_provider_order.join(",")
+        );
+    }
 
-    info!(
-        "request_id={} LLM batch complete: provider={} symbols={}",
-        request_id,
-        provider_name,
-        symbols.len()
-    );
+    Err(anyhow::anyhow!(
+        "All configured LLM providers failed: {}",
+        failures.join(" | ")
+    ))
+}
 
-    parse_llm_content_to_results(content)
+fn llm_provider_config<'a>(
+    provider_name: &str,
+    config: &'a Config,
+) -> Option<(&'a str, &'static str, &'a str)> {
+    match provider_name {
+        "grok" => config.grok_key.as_deref().map(|key| {
+            (
+                key,
+                "https://api.x.ai/v1/chat/completions",
+                config.grok_model.as_str(),
+            )
+        }),
+        "deepseek" => config.deepseek_key.as_deref().map(|key| {
+            (
+                key,
+                "https://api.deepseek.com/chat/completions",
+                config.deepseek_model.as_str(),
+            )
+        }),
+        "openai" => config.openai_key.as_deref().map(|key| {
+            (
+                key,
+                "https://api.openai.com/v1/chat/completions",
+                config.openai_model.as_str(),
+            )
+        }),
+        _ => None,
+    }
 }
 
 pub fn parse_llm_content_to_results(content: &str) -> Result<Vec<SentimentResult>> {
-    let raw: Vec<LlmSentimentRaw> = serde_json::from_str(content)
-        .context("LLM content must be a JSON array of sentiment objects")?;
+    let raw = parse_llm_raw_results(content)?;
 
     let results = raw
         .into_iter()
         .map(|item| SentimentResult {
             symbol: item.symbol,
             sentiment_score: item.sentiment_score,
-            label: item.label,
+            label: normalize_sentiment_label(&item.label),
             confidence: item.confidence,
             source_tier: "tier_3_llm".to_string(),
             news_provider: None,
@@ -855,6 +919,30 @@ pub fn parse_llm_content_to_results(content: &str) -> Result<Vec<SentimentResult
         .collect();
 
     Ok(results)
+}
+
+fn normalize_sentiment_label(label: &str) -> String {
+    match label.trim().to_ascii_lowercase().as_str() {
+        "positive" | "bullish" => "bullish".to_string(),
+        "negative" | "bearish" => "bearish".to_string(),
+        "neutral" => "neutral".to_string(),
+        _ => "neutral".to_string(),
+    }
+}
+
+fn parse_llm_raw_results(content: &str) -> Result<Vec<LlmSentimentRaw>> {
+    if let Ok(raw) = serde_json::from_str::<Vec<LlmSentimentRaw>>(content) {
+        return Ok(raw);
+    }
+
+    let payload: serde_json::Value = serde_json::from_str(content)
+        .context("LLM content must be valid JSON containing sentiment results")?;
+    let results = payload
+        .get("results")
+        .context("LLM content must contain a results array")?;
+
+    serde_json::from_value(results.clone())
+        .context("LLM results must be an array of sentiment objects")
 }
 
 #[cfg(test)]

@@ -4,28 +4,28 @@
 
 ### Findings
 
-- Error payloads are inconsistent (`retry_after_ms` in 429 vs `retry_after_seconds` in 503).
-- Validation error taxonomy is undocumented and largely unimplemented.
-- Health endpoint does not provide actionable dependency state beyond booleans.
+- Error payloads now use `retry_after_seconds`, but the full taxonomy still needs an OpenAPI contract.
+- Validation exists for core analyze payload bounds and duplicate tickers.
+- Readiness exposes per-tier provider state, degradation reasons, and placeholder breaker state.
 
 ### Recommendations
 
-- Standardize error schema: `{ code, message, retry_after_seconds, request_id, details[] }`.
+- Generate and version the error schema: `{ code, message, retry_after_seconds, request_id, details[] }`.
 - Document all 4xx/5xx codes with examples and recovery guidance.
-- Expand health/readiness output with per-tier degradation reason and breaker state.
+- Replace placeholder breaker state with real circuit-breaker state once implemented.
 
 ## Developer Experience (DX)
 
 ### Findings
 
-- Tests are primarily conceptual; confidence in refactors is low.
+- Tests cover validation, auth, rate limiting, failover order parity, retry policy, log redaction, and LLM schema parsing; mocked upstream integration coverage is still thin.
 - No quality gates in CI for unit tests, integration tests, linting, or security scans.
 - No explicit API schema (OpenAPI) to prevent drift between docs and implementation.
 
 ### Recommendations
 
 - Add CI stages: `fmt`, `clippy`, `test`, and dependency vulnerability scan.
-- Introduce integration tests for provider failover and LLM schema handling.
+- Introduce mocked upstream integration tests for provider failover and LLM provider fallback.
 - Generate and version OpenAPI contract; enforce contract tests.
 
 ## Operability (SRE Lens)
@@ -44,7 +44,7 @@
 
 ## Quick Wins
 
-1. Unify retry field units and error envelope format.
-2. Add request validation and deterministic error codes.
-3. Add integration tests that verify real fallback transitions.
+1. Generate OpenAPI/schema docs for the current error envelope.
+2. Add mocked upstream tests that verify real fallback transitions.
+3. Add provider-specific LLM 400 fixtures for xAI, DeepSeek, and OpenAI.
 4. Add `clippy + tests` as mandatory CI checks.

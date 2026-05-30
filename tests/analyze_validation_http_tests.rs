@@ -3,15 +3,15 @@ use std::sync::Arc;
 
 use axum_test::TestServer;
 use governor::{
-    state::{keyed::DefaultKeyedStateStore, InMemoryState, NotKeyed},
     Quota, RateLimiter,
+    state::{InMemoryState, NotKeyed, keyed::DefaultKeyedStateStore},
 };
 use moka::future::Cache;
 use serde_json::json;
 
 use tierpulse::{
-    app, config::Config, inference::InferenceEngine, metrics::MetricsRegistry,
-    models::SentimentResult, AppState,
+    AppState, app, config::Config, inference::InferenceEngine, metrics::MetricsRegistry,
+    models::SentimentResult,
 };
 
 fn test_config() -> Config {
@@ -24,7 +24,16 @@ fn test_config() -> Config {
         alphavantage_key: None,
         grok_key: None,
         deepseek_key: None,
+        openai_key: None,
         primary_llm: "grok".to_string(),
+        llm_provider_order: vec![
+            "grok".to_string(),
+            "deepseek".to_string(),
+            "openai".to_string(),
+        ],
+        grok_model: "grok-4.3".to_string(),
+        deepseek_model: "deepseek-v4-pro".to_string(),
+        openai_model: "gpt-5.4-nano".to_string(),
         redis_url: None,
         cache_ttl_sec: 300,
         rate_limit_per_min: 100,
@@ -71,7 +80,7 @@ fn build_state(config: Config) -> Arc<AppState> {
 }
 
 async fn build_server(config: Config) -> TestServer {
-    TestServer::new(app(build_state(config)).await).expect("test server should start")
+    TestServer::new(app(build_state(config)).await)
 }
 
 fn valid_payload() -> serde_json::Value {
@@ -88,11 +97,12 @@ fn assert_standard_error_envelope(body: &serde_json::Value) {
     assert!(body.get("code").and_then(|v| v.as_str()).is_some());
     assert!(body.get("message").and_then(|v| v.as_str()).is_some());
     assert!(body.get("retry_after_seconds").is_some());
-    assert!(body
-        .get("request_id")
-        .and_then(|v| v.as_str())
-        .unwrap_or_default()
-        .starts_with("tp_"));
+    assert!(
+        body.get("request_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .starts_with("tp_")
+    );
     assert!(body.get("details").and_then(|v| v.as_array()).is_some());
 }
 
@@ -120,11 +130,12 @@ async fn analyze_returns_typed_400_shape_for_invalid_symbol_count() {
         body.get("retry_after_seconds"),
         Some(&serde_json::Value::Null)
     );
-    assert!(body
-        .get("request_id")
-        .and_then(|v| v.as_str())
-        .unwrap_or_default()
-        .starts_with("tp_"));
+    assert!(
+        body.get("request_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .starts_with("tp_")
+    );
 
     let details = body
         .get("details")
@@ -149,21 +160,27 @@ async fn health_and_metrics_endpoints_are_exposed() {
     let ready_body = ready.json::<serde_json::Value>();
     assert!(ready_body.get("status").and_then(|v| v.as_str()).is_some());
     assert!(ready_body.get("tiers").is_some());
-    assert!(ready_body
-        .get("tiers")
-        .and_then(|t| t.get("tier_1_local_onnx"))
-        .and_then(|v| v.get("breaker_state"))
-        .is_some());
-    assert!(ready_body
-        .get("tiers")
-        .and_then(|t| t.get("tier_2_news"))
-        .and_then(|v| v.get("degradation_reason"))
-        .is_some());
-    assert!(ready_body
-        .get("tiers")
-        .and_then(|t| t.get("tier_3_llm"))
-        .and_then(|v| v.get("breaker_state"))
-        .is_some());
+    assert!(
+        ready_body
+            .get("tiers")
+            .and_then(|t| t.get("tier_1_local_onnx"))
+            .and_then(|v| v.get("breaker_state"))
+            .is_some()
+    );
+    assert!(
+        ready_body
+            .get("tiers")
+            .and_then(|t| t.get("tier_2_news"))
+            .and_then(|v| v.get("degradation_reason"))
+            .is_some()
+    );
+    assert!(
+        ready_body
+            .get("tiers")
+            .and_then(|t| t.get("tier_3_llm"))
+            .and_then(|v| v.get("breaker_state"))
+            .is_some()
+    );
 
     let metrics = server.get("/metrics").await;
     metrics.assert_status_ok();
@@ -250,9 +267,11 @@ async fn analyze_returns_429_tenant_with_standard_error_envelope() {
         .get("details")
         .and_then(|v| v.as_array())
         .expect("details must be array");
-    assert!(details
-        .iter()
-        .any(|entry| entry.get("field") == Some(&json!("tenant_id"))));
+    assert!(
+        details
+            .iter()
+            .any(|entry| entry.get("field") == Some(&json!("tenant_id")))
+    );
 }
 
 #[tokio::test]

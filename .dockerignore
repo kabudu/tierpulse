@@ -4,6 +4,7 @@ node_modules/
 .github/
 Dockerfile
 .dockerignore
+.env
 model-prep-cache/
 **/*.onnx
 !model.onnx

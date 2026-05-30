@@ -4,7 +4,7 @@
 ### **1. Core Architectural Shift: The Case for Rust**
 To meet the "Five Nines" availability and sub-millisecond overhead required by institutional-grade trading bots, tierpulse moves from a Python-based prototype to a **Rust** implementation.
 
-- **Stack:** [Axum](https://github.com/tokio-rs/axum) (Web Framework) + [ort](https://github.com/pykeio/ort) (ONNX Runtime for Rust).
+- **Stack:** Rust 2024 edition (MSRV 1.96), [Axum](https://github.com/tokio-rs/axum) (Web Framework), and [ort](https://github.com/pykeio/ort) (ONNX Runtime for Rust).
 - **Leanness:** By eliminating the Python interpreter and heavy library overhead, the Docker footprint is reduced from ~650MB to **<100MB**.
 - **Performance:** Rust provides a truly concurrent, thread-safe environment without the constraints of a Global Interpreter Lock (GIL), allowing the system to handle thousands of concurrent ticker analyzes with minimal CPU jitter.
 - **Safety:** Compile-time memory safety eliminates common production bugs like buffer overflows or data races, critical for high-throughput financial data processing.
@@ -124,43 +124,56 @@ _Note: Providing the `name` is mandatory for Tier 3 (LLM) fallbacks to ensure th
 
 ### **6. Configuration & Infrastructure**
 
-| Variable           | Default      | Description                                                 |
-| :----------------- | :----------- | :---------------------------------------------------------- |
-| `PORT`             | `8080`       | Server listening port.                                      |
-| `TP_TIINGO_KEY`    | _Required_   | Primary news fetcher API key.                               |
-| `TP_FINNHUB_KEY`   | `null`       | Tier 1/2 fallback provider key.                             |
-| `TP_MARKETAUX_KEY` | `null`       | Tier 2 fallback provider key.                               |
-| `TP_GROK_KEY`      | `null`       | xAI API key for Tier 3 "Grok" fallback.                     |
-| `TP_DEEPSEEK_KEY`  | `null`       | DeepSeek API key for Tier 3 fallback.                       |
-| `TP_PRIMARY_LLM`   | `grok`       | Primary LLM engine (choice: `grok`, `deepseek`).            |
-| `TP_REDIS_URL`     | `null`       | Redis endpoint (enables distributed caching).               |
-| `TP_CACHE_TTL`     | `300`        | In-memory/Redis cache expiration (seconds).                 |
-| `TP_RATE_LIMIT`    | `100`        | Request tokens per minute (Token Bucket capacity).          |
-| `TP_ONNX_THREADS`  | `2`          | CPU thread allocation for the `ort` session.                |
-| `TP_MODEL_PATH`    | `model.onnx` | Path to the ONNX model file.                                |
-| `TP_LOG_LEVEL`     | `INFO`       | Global logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`). |
+| Variable | Default | Description |
+| :-- | :-- | :-- |
+| `PORT` | `8080` | Server listening port. |
+| `TP_TIINGO_KEY` | _Required_ | Primary news fetcher API key. |
+| `TP_FINNHUB_KEY` | `null` | Tier 1/2 fallback provider key. |
+| `TP_MARKETAUX_KEY` | `null` | Tier 2 fallback provider key. |
+| `TP_GROK_KEY` | `null` | xAI API key for Tier 3 fallback. |
+| `TP_DEEPSEEK_KEY` | `null` | DeepSeek API key for Tier 3 fallback. |
+| `TP_OPENAI_KEY` | `null` | OpenAI API key for Tier 3 fallback. |
+| `TP_PRIMARY_LLM` | `grok` | Backward-compatible first-provider hint when `TP_LLM_PROVIDER_ORDER` is unset. |
+| `TP_LLM_PROVIDER_ORDER` | derived | Comma-separated Tier 3 execution order (`grok`, `deepseek`, `openai`). |
+| `TP_GROK_MODEL` | `grok-4.3` | xAI chat-completions model used by the `grok` provider. |
+| `TP_DEEPSEEK_MODEL` | `deepseek-v4-pro` | DeepSeek chat-completions model used by the `deepseek` provider. |
+| `TP_OPENAI_MODEL` | `gpt-5.4-nano` | OpenAI chat-completions model used by the `openai` provider. |
+| `TP_REDIS_URL` | `null` | Redis endpoint (enables distributed caching). |
+| `TP_CACHE_TTL` | `300` | In-memory/Redis cache expiration (seconds). |
+| `TP_RATE_LIMIT` | `100` | Request tokens per minute (Token Bucket capacity). |
+| `TP_ONNX_THREADS` | `2` | CPU thread allocation for the `ort` session. |
+| `TP_MODEL_PATH` | `model.onnx` | Path to the ONNX model file. |
+| `TP_LOG_LEVEL` | `INFO` | Global logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`). |
+
+When `TP_LLM_PROVIDER_ORDER` is unset, tierpulse starts with `TP_PRIMARY_LLM` and appends the remaining supported providers in the default sequence `grok,deepseek,openai`.
 
 ---
 
 ### **7. Tier 3: LLM Fallback (Intelligence Layer)**
 
-When all local inference and news provider tiers are exhausted, tierpulse triggers the xAI/DeepSeek "Real-time Knowledge" layer.
+When all local inference and news provider tiers are exhausted, tierpulse triggers the configured LLM layer. Providers are attempted sequentially according to `TP_LLM_PROVIDER_ORDER`, skipping providers without configured keys and falling back after request errors, non-2xx responses, or invalid payloads.
 
 **Prompt Template:**
-`"Analyze market sentiment for {name} ({ticker}) based on your real-time knowledge."`
+`"Analyze market sentiment for the following symbols: {name} ({ticker}), ... Respond ONLY with a JSON object containing a \"results\" array."`
 
 **LLM Strict Interface (JSON Only):**
 The response must adhere to the following strict contract:
 
 ```json
 {
-  "symbol": "string",
-  "sentiment_score": float (-1.0 to 1.0),
-  "confidence": float (0.0 to 1.0),
-  "reasoning": "string (max 20 words)",
-  "source": "internal_llm_knowledge"
+  "results": [
+    {
+      "symbol": "string",
+      "sentiment_score": "float (-1.0 to 1.0)",
+      "confidence": "float (0.0 to 1.0)",
+      "reasoning": "string (max 20 words)",
+      "label": "string"
+    }
+  ]
 }
 ```
+
+The LLM transport requests provider JSON mode via `response_format: { "type": "json_object" }`, disables streaming, and validates every returned item before accepting a provider response. A legacy top-level array shape is still accepted for backward compatibility, but the provider-facing contract is the object form above.
 
 ---
 
@@ -168,7 +181,7 @@ The response must adhere to the following strict contract:
 
 #### **A. Multi-Stage "Zero-Bloat" Build**
 
-1. **Stage 1 (Model Prep):** A Python container exports, prunes, and quantizes FinBERT to ONNX.
+1. **Stage 1 (Model Prep):** A Python container exports and quantizes the configured Hugging Face financial sentiment model to ONNX. The default is `ProsusAI/finbert`; builds can override it with Docker build arg `MODEL_ID=<owner/model>`.
 2. **Stage 2 (Binary Build):** A Rust container builds the service using `cargo build --release`.
 3. **Stage 3 (Production):** The final image uses a **Distroless** or **Scratch** base, containing _only_ the compiled Rust binary and the `.onnx` model file. Target size: **~85MB**.
 
@@ -176,7 +189,8 @@ The response must adhere to the following strict contract:
 
 The CI/CD pipeline (GitHub Actions) automatically builds and pushes the Docker image to Docker Hub at `boxedcode/tierpulse`.
 
-- **Versioning:** Utilizes **Semantic Versioning** for automatic tagging (e.g., `v1.0.0`).
+- **Versioning:** Utilizes **Semantic Versioning** for automatic tagging. A Git tag such as `v1.2.1` produces Docker tags `1.2.1`, `1.2`, and `1`; pushes to `master` publish `latest`.
+- **Release consistency:** Versioned Docker publishing requires the Git tag, `Cargo.toml` package version, and `CHANGELOG.md` release section to match.
 - **Triggers:** Tags matching `v*` and pushes to the `main` branch trigger a deployment.
 
 #### **C. Test Suite Requirements**

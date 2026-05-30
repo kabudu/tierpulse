@@ -10,13 +10,13 @@ Close conformance gaps against `Implementation.md` while raising production read
 
 ### Deliverables
 
-- Enforce request validation (symbols, bounds, payload limits).
-- Normalize error contract (`retry_after_seconds`, stable `code`).
-- Harden LLM response parsing with schema validation and fallback handling.
+- Maintain request validation coverage (symbols, bounds, payload limits).
+- Publish the normalized error contract (`retry_after_seconds`, stable `code`) through OpenAPI/schema docs.
+- Maintain LLM response parsing with schema validation and fallback handling.
 
 ### Exit Criteria
 
-- All validation failure classes return deterministic 400 responses.
+- All validation failure classes return deterministic 400 responses and are covered by contract tests.
 - No panic paths in primary request flow under malformed upstream payloads.
 
 ## Phase 1 (Weeks 2–3) — Resilience & Security Hardening
@@ -24,7 +24,7 @@ Close conformance gaps against `Implementation.md` while raising production read
 ### Deliverables
 
 - Add circuit breaker per upstream provider and expose breaker state in health.
-- Add bounded retries with jittered backoff for transient failures.
+- Keep bounded retries with jittered backoff for transient failures covered by tests.
 - Introduce tenant-aware auth and per-tenant rate limits.
 - Add structured redaction middleware and secret leak tests.
 

@@ -1,9 +1,9 @@
-use serde_yaml::Value;
+use noyalib::Value;
 
 fn load_openapi() -> Value {
     let raw = std::fs::read_to_string("openapi/openapi.v1.yaml")
         .expect("openapi contract file should exist at openapi/openapi.v1.yaml");
-    serde_yaml::from_str(&raw).expect("openapi contract should be valid YAML")
+    noyalib::from_str(&raw).expect("openapi contract should be valid YAML")
 }
 
 fn lookup<'a>(value: &'a Value, path: &[&str]) -> &'a Value {

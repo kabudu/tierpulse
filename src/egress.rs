@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use reqwest::Url;
 use std::collections::HashSet;
 
@@ -12,6 +12,7 @@ fn default_allowed_hosts() -> HashSet<&'static str> {
         "www.alphavantage.co",
         "api.x.ai",
         "api.deepseek.com",
+        "api.openai.com",
     ]
     .into_iter()
     .collect()
@@ -69,7 +70,16 @@ mod tests {
             alphavantage_key: None,
             grok_key: None,
             deepseek_key: None,
+            openai_key: None,
             primary_llm: "grok".to_string(),
+            llm_provider_order: vec![
+                "grok".to_string(),
+                "deepseek".to_string(),
+                "openai".to_string(),
+            ],
+            grok_model: "grok-4.3".to_string(),
+            deepseek_model: "deepseek-v4-pro".to_string(),
+            openai_model: "gpt-5.4-nano".to_string(),
             redis_url: None,
             cache_ttl_sec: 300,
             rate_limit_per_min: 100,
@@ -98,6 +108,10 @@ mod tests {
             &test_config(),
         );
         assert!(alpha_result.is_ok());
+
+        let openai_result =
+            enforce_allowed_url("https://api.openai.com/v1/chat/completions", &test_config());
+        assert!(openai_result.is_ok());
     }
 
     #[test]

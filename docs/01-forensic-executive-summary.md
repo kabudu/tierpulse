@@ -17,7 +17,7 @@ The implementation demonstrates strong momentum on core architecture (Rust + Axu
 
 1. **No real circuit breaker** despite health contract claiming circuit-breaker visibility.
 2. **Missing request validation** (bounds, empty symbols, duplicates, invalid lengths), despite 400 behavior in requirements.
-3. **LLM response contract fragility**: request asks for `json_object` while prompt asks for array; parser assumes direct array string.
+3. **LLM response contract hardening is now in place**: provider requests use JSON-object mode, prompts require a `results` array, and malformed payloads fall through to the next configured LLM.
 4. **No idempotent error accounting/metrics** for upstream failures, retries, or tier exhaustion rates.
 5. **Security controls are thin**: no auth, no request-size guardrails, no input sanitation strategy, no outbound allowlist.
 6. **Tests are mostly placeholder** and do not validate real sequential failover, model drift, or log redaction behavior.
@@ -33,7 +33,7 @@ The implementation demonstrates strong momentum on core architecture (Rust + Axu
 
 ## Recommended Program
 
-- **P0 (Immediate)**: Add strict request validation, harden LLM JSON contract handling, and add genuine failover tests.
+- **P0 (Immediate)**: Keep expanding strict request validation coverage, maintain LLM JSON contract tests, and add deeper mocked-upstream failover tests.
 - **P1 (2–4 weeks)**: Circuit breaker implementation, richer metrics/tracing, retry policy with jittered backoff.
 - **P2 (4–8 weeks)**: SLO-driven capacity tuning, security posture uplift (auth/rate-limits by tenant), and operational runbooks.
 

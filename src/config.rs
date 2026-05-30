@@ -14,8 +14,13 @@ pub struct Config {
     pub alphavantage_key: Option<String>,
     pub grok_key: Option<String>,
     pub deepseek_key: Option<String>,
+    pub openai_key: Option<String>,
 
-    pub primary_llm: String, // "grok" | "deepseek"
+    pub primary_llm: String, // Backward-compatible hint for first LLM provider.
+    pub llm_provider_order: Vec<String>,
+    pub grok_model: String,
+    pub deepseek_model: String,
+    pub openai_model: String,
 
     // Caching
     pub redis_url: Option<String>,
@@ -57,6 +62,16 @@ impl fmt::Debug for Config {
                 &self.alphavantage_key.as_ref().map(|_| "[MASKED]"),
             )
             .field("grok_key", &self.grok_key.as_ref().map(|_| "[MASKED]"))
+            .field(
+                "deepseek_key",
+                &self.deepseek_key.as_ref().map(|_| "[MASKED]"),
+            )
+            .field("openai_key", &self.openai_key.as_ref().map(|_| "[MASKED]"))
+            .field("primary_llm", &self.primary_llm)
+            .field("llm_provider_order", &self.llm_provider_order)
+            .field("grok_model", &self.grok_model)
+            .field("deepseek_model", &self.deepseek_model)
+            .field("openai_model", &self.openai_model)
             .field("auth_mode", &self.auth_mode)
             .field(
                 "auth_api_keys",
@@ -104,6 +119,63 @@ fn parse_egress_allowlist(value: &str) -> Vec<String> {
         .collect()
 }
 
+fn optional_env(name: &str) -> Option<String> {
+    env::var(name)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+fn normalize_llm_provider(provider: &str) -> anyhow::Result<String> {
+    let provider = provider.trim().to_ascii_lowercase();
+    match provider.as_str() {
+        "grok" | "deepseek" | "openai" => Ok(provider),
+        _ => anyhow::bail!(
+            "Unsupported LLM provider '{}'; expected one of: grok, deepseek, openai",
+            provider
+        ),
+    }
+}
+
+pub fn parse_llm_provider_order(
+    raw_order: Option<&str>,
+    primary_llm: &str,
+) -> anyhow::Result<Vec<String>> {
+    let configured = raw_order
+        .map(|order| {
+            order
+                .split(',')
+                .map(str::trim)
+                .filter(|provider| !provider.is_empty())
+                .collect::<Vec<_>>()
+        })
+        .filter(|providers| !providers.is_empty());
+
+    let providers = if let Some(providers) = configured {
+        providers
+            .into_iter()
+            .map(normalize_llm_provider)
+            .collect::<anyhow::Result<Vec<_>>>()?
+    } else {
+        let mut providers = vec![normalize_llm_provider(primary_llm)?];
+        for provider in ["grok", "deepseek", "openai"] {
+            if !providers.iter().any(|existing| existing == provider) {
+                providers.push(provider.to_string());
+            }
+        }
+        providers
+    };
+
+    let mut deduped = Vec::new();
+    for provider in providers {
+        if !deduped.contains(&provider) {
+            deduped.push(provider);
+        }
+    }
+
+    Ok(deduped)
+}
+
 impl Config {
     pub fn from_env() -> anyhow::Result<Self> {
         dotenvy::dotenv().ok();
@@ -117,10 +189,17 @@ impl Config {
         } else {
             parse_auth_api_keys(&auth_api_keys_raw)?
         };
-        let jwt_secret = env::var("TP_JWT_SECRET").ok();
-        let jwt_issuer = env::var("TP_JWT_ISSUER").ok();
+        let jwt_secret = optional_env("TP_JWT_SECRET");
+        let jwt_issuer = optional_env("TP_JWT_ISSUER");
         let egress_allowlist =
             parse_egress_allowlist(&env::var("TP_EGRESS_ALLOWLIST").unwrap_or_default());
+        let primary_llm = normalize_llm_provider(
+            &env::var("TP_PRIMARY_LLM").unwrap_or_else(|_| "grok".to_string()),
+        )?;
+        let llm_provider_order = parse_llm_provider_order(
+            env::var("TP_LLM_PROVIDER_ORDER").ok().as_deref(),
+            &primary_llm,
+        )?;
 
         match auth_mode.as_str() {
             "none" => {}
@@ -147,16 +226,26 @@ impl Config {
                 .parse()?,
             log_level: env::var("TP_LOG_LEVEL").unwrap_or_else(|_| "INFO".to_string()),
 
-            tiingo_key: env::var("TP_TIINGO_KEY").expect("TP_TIINGO_KEY is required"),
-            finnhub_key: env::var("TP_FINNHUB_KEY").ok(),
-            marketaux_key: env::var("TP_MARKETAUX_KEY").ok(),
-            alphavantage_key: env::var("TP_ALPHAVANTAGE_KEY").ok(),
-            grok_key: env::var("TP_GROK_KEY").ok(),
-            deepseek_key: env::var("TP_DEEPSEEK_KEY").ok(),
+            tiingo_key: env::var("TP_TIINGO_KEY")
+                .expect("TP_TIINGO_KEY is required")
+                .trim()
+                .to_string(),
+            finnhub_key: optional_env("TP_FINNHUB_KEY"),
+            marketaux_key: optional_env("TP_MARKETAUX_KEY"),
+            alphavantage_key: optional_env("TP_ALPHAVANTAGE_KEY"),
+            grok_key: optional_env("TP_GROK_KEY"),
+            deepseek_key: optional_env("TP_DEEPSEEK_KEY"),
+            openai_key: optional_env("TP_OPENAI_KEY"),
 
-            primary_llm: env::var("TP_PRIMARY_LLM").unwrap_or_else(|_| "grok".to_string()),
+            primary_llm,
+            llm_provider_order,
+            grok_model: optional_env("TP_GROK_MODEL").unwrap_or_else(|| "grok-4.3".to_string()),
+            deepseek_model: optional_env("TP_DEEPSEEK_MODEL")
+                .unwrap_or_else(|| "deepseek-v4-pro".to_string()),
+            openai_model: optional_env("TP_OPENAI_MODEL")
+                .unwrap_or_else(|| "gpt-5.4-nano".to_string()),
 
-            redis_url: env::var("TP_REDIS_URL").ok(),
+            redis_url: optional_env("TP_REDIS_URL"),
             cache_ttl_sec: env::var("TP_CACHE_TTL")
                 .unwrap_or_else(|_| "300".to_string())
                 .parse()?,

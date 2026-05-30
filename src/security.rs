@@ -45,6 +45,9 @@ fn sensitive_values(config: &Config) -> Vec<String> {
     if let Some(v) = &config.deepseek_key {
         values.push(v.clone());
     }
+    if let Some(v) = &config.openai_key {
+        values.push(v.clone());
+    }
     if let Some(v) = &config.jwt_secret {
         values.push(v.clone());
     }
