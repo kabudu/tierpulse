@@ -13,6 +13,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+## [1.3.1] - 2026-08-21
+
+### Fixed
+
+- Changed the default DeepSeek Tier-3 model from `deepseek-v4-pro` to
+  `deepseek-v4-flash` while preserving the `TP_DEEPSEEK_MODEL` override.
+
 ## [1.3.0] - 2026-05-30
 
 ### Added

@@ -734,7 +734,7 @@ mod tests {
                 "openai".to_string(),
             ],
             grok_model: "grok-4.3".to_string(),
-            deepseek_model: "deepseek-v4-pro".to_string(),
+            deepseek_model: "deepseek-v4-flash".to_string(),
             openai_model: "gpt-5.4-nano".to_string(),
             redis_url: None,
             cache_ttl_sec: 300,

@@ -22,7 +22,7 @@ services:
       TP_PRIMARY_LLM: "${TP_PRIMARY_LLM:-grok}"
       TP_LLM_PROVIDER_ORDER: "${TP_LLM_PROVIDER_ORDER:-grok,deepseek,openai}"
       TP_GROK_MODEL: "${TP_GROK_MODEL:-grok-4.3}"
-      TP_DEEPSEEK_MODEL: "${TP_DEEPSEEK_MODEL:-deepseek-v4-pro}"
+      TP_DEEPSEEK_MODEL: "${TP_DEEPSEEK_MODEL:-deepseek-v4-flash}"
       TP_OPENAI_MODEL: "${TP_OPENAI_MODEL:-gpt-5.4-nano}"
 
       # Auth defaults

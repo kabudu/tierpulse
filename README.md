@@ -120,7 +120,7 @@ Create a `.env` file or set environment variables. All variables prefixed with `
 | `TP_PRIMARY_LLM`                      | `grok`       | Backward-compatible hint for the first LLM provider when `TP_LLM_PROVIDER_ORDER` is unset.                       |
 | `TP_LLM_PROVIDER_ORDER`               | derived      | Comma-separated Tier-3 execution order using `grok`, `deepseek`, and/or `openai`.                               |
 | `TP_GROK_MODEL`                       | `grok-4.3`        | xAI chat-completions model used by the `grok` provider.                                                         |
-| `TP_DEEPSEEK_MODEL`                   | `deepseek-v4-pro` | DeepSeek chat-completions model used by the `deepseek` provider.                                                |
+| `TP_DEEPSEEK_MODEL`                   | `deepseek-v4-flash` | DeepSeek chat-completions model used by the `deepseek` provider.                                              |
 | `TP_OPENAI_MODEL`                     | `gpt-5.4-nano`    | OpenAI chat-completions model used by the `openai` provider.                                                    |
 | `TP_REDIS_URL`                        | `null`       | Redis URL for distributed caching (e.g., `redis://localhost:6379`).                                              |
 | `TP_CACHE_TTL`                        | `300`        | In-memory/Redis cache expiration in seconds.                                                                     |

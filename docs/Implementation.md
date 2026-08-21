@@ -136,7 +136,7 @@ _Note: Providing the `name` is mandatory for Tier 3 (LLM) fallbacks to ensure th
 | `TP_PRIMARY_LLM` | `grok` | Backward-compatible first-provider hint when `TP_LLM_PROVIDER_ORDER` is unset. |
 | `TP_LLM_PROVIDER_ORDER` | derived | Comma-separated Tier 3 execution order (`grok`, `deepseek`, `openai`). |
 | `TP_GROK_MODEL` | `grok-4.3` | xAI chat-completions model used by the `grok` provider. |
-| `TP_DEEPSEEK_MODEL` | `deepseek-v4-pro` | DeepSeek chat-completions model used by the `deepseek` provider. |
+| `TP_DEEPSEEK_MODEL` | `deepseek-v4-flash` | DeepSeek chat-completions model used by the `deepseek` provider. |
 | `TP_OPENAI_MODEL` | `gpt-5.4-nano` | OpenAI chat-completions model used by the `openai` provider. |
 | `TP_REDIS_URL` | `null` | Redis endpoint (enables distributed caching). |
 | `TP_CACHE_TTL` | `300` | In-memory/Redis cache expiration (seconds). |
