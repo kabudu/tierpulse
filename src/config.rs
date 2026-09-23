@@ -25,6 +25,7 @@ pub struct Config {
     // Caching
     pub redis_url: Option<String>,
     pub cache_ttl_sec: u64,
+    pub require_news: bool,
 
     // Throttling
     pub rate_limit_per_min: u32,
@@ -246,6 +247,9 @@ impl Config {
                 .unwrap_or_else(|| "gpt-5.4-nano".to_string()),
 
             redis_url: optional_env("TP_REDIS_URL"),
+            require_news: env::var("TP_REQUIRE_NEWS")
+                .unwrap_or_else(|_| "false".to_string())
+                .parse()?,
             cache_ttl_sec: env::var("TP_CACHE_TTL")
                 .unwrap_or_else(|_| "300".to_string())
                 .parse()?,

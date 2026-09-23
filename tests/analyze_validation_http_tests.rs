@@ -36,6 +36,7 @@ fn test_config() -> Config {
         openai_model: "gpt-5.4-nano".to_string(),
         redis_url: None,
         cache_ttl_sec: 300,
+        require_news: false,
         rate_limit_per_min: 100,
         global_rate_limit_per_min: 1000,
         auth_mode: "none".to_string(),
@@ -104,6 +105,43 @@ fn assert_standard_error_envelope(body: &serde_json::Value) {
             .starts_with("tp_")
     );
     assert!(body.get("details").and_then(|v| v.as_array()).is_some());
+}
+
+#[tokio::test]
+async fn news_only_mode_preserves_good_results_and_marks_missing_unavailable() {
+    let mut config = test_config();
+    config.require_news = true;
+    config.deepseek_key = Some("test-not-a-real-key".to_string());
+    let state = build_state(config);
+    state
+        .cache
+        .insert(
+            "news_only:AAPL".to_string(),
+            SentimentResult {
+                symbol: "AAPL".to_string(),
+                sentiment_score: 0.8,
+                label: "bullish".to_string(),
+                confidence: 0.9,
+                source_tier: "tier_1_local_onnx".to_string(),
+                news_provider: Some("batch_news".to_string()),
+                article_count: 2,
+                reasoning: None,
+            },
+        )
+        .await;
+    let server = TestServer::new(app(state.clone()).await);
+    let response = server
+        .post("/api/v1/analyze")
+        .json(&json!({
+            "symbols": [{"ticker":"AAPL", "name":"Apple"}, {"ticker":"NONE", "name":"Missing"}],
+            "lookback_hours":24, "max_articles_per_symbol":5
+        }))
+        .await;
+    response.assert_status_ok();
+    let body = response.json::<serde_json::Value>();
+    assert_eq!(body["results"][0]["article_count"], 2);
+    assert_eq!(body["results"][1]["source_tier"], "unavailable");
+    assert_eq!(body["results"][1]["confidence"], 0.0);
 }
 
 #[tokio::test]

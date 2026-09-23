@@ -82,6 +82,7 @@ mod tests {
             openai_model: "gpt-5.4-nano".to_string(),
             redis_url: None,
             cache_ttl_sec: 300,
+            require_news: false,
             rate_limit_per_min: 100,
             global_rate_limit_per_min: 1000,
             auth_mode: "none".to_string(),

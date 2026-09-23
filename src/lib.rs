@@ -264,7 +264,7 @@ pub async fn analyze_handler(
         let mut symbols_to_fetch_news: Vec<(usize, Symbol)> = Vec::new();
 
         for (idx, symbol) in payload.symbols.into_iter().enumerate() {
-            let cache_key = normalized_cache_key(&symbol.ticker);
+            let cache_key = sentiment_cache_key(&symbol.ticker, state.config.require_news);
 
             if let Some(cached) = state.cache.get(&cache_key).await {
                 state.metrics.record_cache_hit_memory();
@@ -352,7 +352,7 @@ pub async fn analyze_handler(
                                         reasoning: None,
                                     };
 
-                                    let cache_key = normalized_cache_key(&symbol.ticker);
+                                    let cache_key = sentiment_cache_key(&symbol.ticker, state.config.require_news);
 
                                     state.cache.insert(cache_key.clone(), res.clone()).await;
                                     if let Some(redis_client) = &state.redis_client {
@@ -378,6 +378,10 @@ pub async fn analyze_handler(
                             }
                         }
 
+                        if state.config.require_news {
+                            final_results[orig_idx] = Some(unavailable_sentiment(&symbol.ticker));
+                            continue;
+                        }
                         if can_escalate_to_llm
                             && (state.config.grok_key.is_some()
                                 || state.config.deepseek_key.is_some()
@@ -408,8 +412,14 @@ pub async fn analyze_handler(
                     state
                         .metrics
                         .record_fallback_transition("tier_2_news", "intelligence_exhaustion");
-                    tier_exhausted = true;
-                    return exhaustion_response(&request_id).into_response();
+                    if state.config.require_news {
+                        for (idx, symbol) in symbols_to_fetch_news {
+                            final_results[idx] = Some(unavailable_sentiment(&symbol.ticker));
+                        }
+                    } else {
+                        tier_exhausted = true;
+                        return exhaustion_response(&request_id).into_response();
+                    }
                 }
             }
         }
@@ -428,7 +438,7 @@ pub async fn analyze_handler(
                 Ok(batch_results) => {
                     for res in batch_results {
                         if let Some((orig_idx, _)) = chunk.iter().find(|(_, s)| s.ticker == res.symbol) {
-                            let cache_key = normalized_cache_key(&res.symbol);
+                            let cache_key = sentiment_cache_key(&res.symbol, state.config.require_news);
 
                             state.cache.insert(cache_key.clone(), res.clone()).await;
                             if let Some(redis_client) = &state.redis_client {
@@ -701,6 +711,28 @@ fn combined_text_from_list(list: &[String]) -> String {
     list.join(" ")
 }
 
+fn unavailable_sentiment(ticker: &str) -> SentimentResult {
+    SentimentResult {
+        symbol: ticker.to_string(),
+        sentiment_score: 0.0,
+        label: "unavailable".to_string(),
+        confidence: 0.0,
+        source_tier: "unavailable".to_string(),
+        news_provider: None,
+        article_count: 0,
+        reasoning: Some("No usable news-backed analysis; LLM fallback disabled".to_string()),
+    }
+}
+
+fn sentiment_cache_key(ticker: &str, require_news: bool) -> String {
+    let key = normalized_cache_key(ticker);
+    if require_news {
+        format!("news_only:{key}")
+    } else {
+        key
+    }
+}
+
 fn normalized_cache_key(ticker: &str) -> String {
     ticker.trim().to_ascii_uppercase()
 }
@@ -715,6 +747,18 @@ mod tests {
     use serde::Serialize;
     use std::num::NonZeroU32;
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn news_only_cache_is_separate_from_ungrounded_results() {
+        assert_ne!(
+            sentiment_cache_key("AAPL", true),
+            sentiment_cache_key("AAPL", false)
+        );
+        let missing = unavailable_sentiment("AAPL");
+        assert_eq!(missing.confidence, 0.0);
+        assert_eq!(missing.label, "unavailable");
+        assert_eq!(missing.article_count, 0);
+    }
 
     fn base_config() -> Config {
         Config {
@@ -738,6 +782,7 @@ mod tests {
             openai_model: "gpt-5.4-nano".to_string(),
             redis_url: None,
             cache_ttl_sec: 300,
+            require_news: false,
             rate_limit_per_min: 1,
             global_rate_limit_per_min: 10,
             auth_mode: "none".to_string(),
