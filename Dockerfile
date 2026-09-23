@@ -18,10 +18,13 @@ RUN python export_model.py --arch $TARGETARCH --model-id "$MODEL_ID" && \
 
 # Stage 2: Binary Build (Rust)
 # Uses latest slim toolchain image (Debian 13/trixie lineage) for successful ort linking
-FROM --platform=$BUILDPLATFORM rust:1.96-slim AS builder
+FROM --platform=$BUILDPLATFORM rust:1.96.0-slim AS builder
 ARG TARGETARCH
 ARG BUILDARCH
 WORKDIR /app
+
+# Select the repository toolchain before installing its cross-compilation targets.
+COPY rust-toolchain.toml ./
 
 # Install build dependencies and target-specific cross-compilation toolchains
 RUN apt-get update && apt-get install -y \
