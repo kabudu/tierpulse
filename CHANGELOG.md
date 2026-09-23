@@ -13,6 +13,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+## [1.4.1] - 2026-09-23
+
+### Fixed
+
+- Install Docker cross-compilation targets using the repository-pinned Rust toolchain, fixing ARM64 image publication after the base image toolchain advanced.
+- Deliver the news-only sentiment mode and dependency security fixes from 1.4.0 in versioned container images; the 1.4.0 image build failed before publication.
+
 ## [1.4.0] - 2026-09-23
 
 ### Added
