@@ -137,6 +137,7 @@ components:
           type: number
         label:
           type: string
+          description: bullish, bearish or neutral; unavailable indicates missing news-backed analysis when TP_REQUIRE_NEWS is enabled.
         confidence:
           type: number
         source_tier:

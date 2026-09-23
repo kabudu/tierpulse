@@ -141,6 +141,8 @@ Docker builds export `ProsusAI/finbert` to INT8 ONNX by default. To build with a
 
 When `TP_LLM_PROVIDER_ORDER` is unset, tierpulse starts with `TP_PRIMARY_LLM` and then appends the remaining supported providers in the default sequence `grok,deepseek,openai`.
 
+Set `TP_REQUIRE_NEWS=true` to use news-backed local inference only, without paid LLM fallback. The default is `false` for compatibility. Missing news or failed local inference returns an individual result with `label` and `source_tier` set to `unavailable`, zero articles and zero confidence; this is missing information, not a neutral market opinion. Other successful results in the batch are preserved. News-only caches are isolated from legacy ticker-only LLM results. Clients must handle `unavailable` explicitly. Clearing LLM keys provides additional protection when upgrading from older images that do not recognise this flag.
+
 ### Authentication Recommendation: API Key vs JWT
 
 - **JWT (recommended for production multi-tenant systems):** Better for identity propagation, expiry, revocation workflows, and integration with existing IdPs.

@@ -13,6 +13,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+## [1.4.0] - 2026-09-23
+
+### Added
+
+- Added opt-in `TP_REQUIRE_NEWS` mode for news-backed local sentiment analysis without paid, ticker-only LLM fallback.
+
+### Fixed
+
+- Preserve successful batch results when other symbols lack usable news, returning explicit unavailable results with zero confidence in news-only mode.
+- Isolate news-only caches from legacy LLM-generated sentiment so enabling the mode cannot reuse ungrounded results.
+- Update locked dependencies to resolve the crossbeam-epoch, h2, quinn-proto and rustls security advisories, alongside compatible fixes for unsound or yanked dependencies.
+
 ## [1.3.1] - 2026-08-21
 
 ### Fixed
